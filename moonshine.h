@@ -798,7 +798,7 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) {
         const auto main        = __array;                                                                                      \
         const auto arr         = main[ 0 ];                                                                                    \
         const u8   __get_index = __index;                                                                                      \
-        if (__get_index >= count(main))                                                                                        \
+        if (__get_index > count(main))                                                                                         \
             throw("Requested index in array (", __get_index, ") exceeds the size of the array! (", count(main), ")");          \
         if (__get_index < 0) throw("Cannot access negative offset in array!");                                                 \
         arr[ __get_index ];                                                                                                    \
@@ -807,6 +807,13 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) {
 #define element_size(array)                                                                                                    \
     (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
 #define last(array) get(array, count(array) - 1)
+
+#define in               ,
+#define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
+#define foreach_xp(a, b) a b
+#define foreach_inner(item, array)                                                                                             \
+    u4 cat(item, _index) = 0;                                                                                                  \
+    for (auto item = get(array, cat(item, _index)++); cat(item, _index) <= count(array); item = get(array, cat(item, _index)++))
 
 void puts_number(const int64_t number, const bool is_signed) {
     uint64_t n;
@@ -983,34 +990,33 @@ __attribute__((noreturn)) void __moonshine_start(int argc, string *argv, string 
     exit(exit_code);
 }
 
-__attribute__((force_align_arg_pointer)) __attribute__((naked))
-void _start(void) {
-    __asm__ volatile (
+__attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void) {
+    __asm__ volatile(
         // rdi will get argc. The first quadword at rsp is argc.
-        "mov (%rsp), %rdi \n"          // rdi = argc
+        "mov (%rsp), %rdi \n" // rdi = argc
 
         // rsi will get argv, which is at rsp + 8.
-        "lea 8(%rsp), %rsi \n"         // rsi = &argv[0]
+        "lea 8(%rsp), %rsi \n" // rsi = &argv[0]
 
         // Compute envp pointer.
         // We need to add 8*(argc + 1) to rsp.
         // First, copy argc (which is in rdi) into rax.
-        "mov %rdi, %rax \n"            // rax = argc
-        "lea (,%rax,8), %rcx \n"        // rcx = argc * 8
-        "add $8, %rcx \n"              // rcx = 8*(argc + 1)
-        "lea (%rsp, %rcx), %rdx \n"     // rdx = rsp + 8*(argc+1) -> envp pointer
+        "mov %rdi, %rax \n"         // rax = argc
+        "lea (,%rax,8), %rcx \n"    // rcx = argc * 8
+        "add $8, %rcx \n"           // rcx = 8*(argc + 1)
+        "lea (%rsp, %rcx), %rdx \n" // rdx = rsp + 8*(argc+1) -> envp pointer
 
         // Now call __moonshine_start(argc, argv, envp).
         "call __moonshine_start \n"
 
         // If __moonshine_start returns, we exit.
         // Exit syscall number 60; exit code 0.
-        "mov $60, %rax \n"             // syscall: exit
-        "xor %rdi, %rdi \n"            // rdi = 0    (exit code 0)
+        "mov $60, %rax \n"  // syscall: exit
+        "xor %rdi, %rdi \n" // rdi = 0    (exit code 0)
         "syscall \n"
 
         // No return. Add an infinite loop as a safeguard.
-        "hlt \n"                      // halt the CPU if syscall fails
+        "hlt \n" // halt the CPU if syscall fails
     );
 }
 

@@ -5,10 +5,12 @@
 int main() {
     array(int) test = new (int);
 
-    push(test, 2);
-    for(int i = 45; i > 7; i--) push(test, i % 3);
+    int j = 1;
+    for(int i = 100; i >= 0; i--) push(test, i % (j++));
 
-    print("Wowie: ", get(test, 30));
+    foreach(numba in test) {
+        print("Item: ", numba, " index ", numba_index);
+    }
 
     return 0;
 }
