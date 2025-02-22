@@ -1,0 +1,10 @@
+CompileFlags:
+    Add: [-xc, --analyze, -nostdlib, -nostdinc, -Wno-incompatible-library-redeclaration, -Wall, -Wextra]
+    Remove: [-Wincompatible-library-redeclaration]
+    Compiler: clang
+
+Diagnostics:
+  ClangTidy:
+    FastCheckFilter: None
+    Add:
+        - misc-static-assert
