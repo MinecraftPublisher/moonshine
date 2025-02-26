@@ -3,7 +3,7 @@
 #define __MOONSHINE_LIBC_WARNINGS
 #include "moonshine.h"
 
-void cleanup_free(var* input) { print("Free that thang ", input); }
+void cleanup_free(var* input) { print("Deallocation logic goes here ", input); }
 
 #define auto_free __attribute__((cleanup(cleanup_free)))
 
@@ -12,7 +12,9 @@ void cleanup_free(var* input) { print("Free that thang ", input); }
     auto          name               = cat(name, _parent);
 
 int main() {
-    print("Wow ", strdup("Gay smex")[ 0 ]);
+    create(proof_of_concept, new(int));
+
+    print("Neat, right? ", proof_of_concept);
 
     return 0;
 }
