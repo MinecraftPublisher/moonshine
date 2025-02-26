@@ -604,7 +604,7 @@ void clean_pages() {
 __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var alloc(const u8 _len)
     [[clang::allocating]] {
     static int alloc_count = 0;
-    if (alloc_count++ == 10) {
+    if (alloc_count++ == 16) {
         alloc_count = 0;
         clean_pages();
     }
