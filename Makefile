@@ -4,7 +4,7 @@ SIZE_FLAGS = -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -s -fno-u
 all: m4 c test
 
 m4:
-	m4 main.m4 > moonshine.m4.h
+	m4 moonshine.m4 > moonshine.m4.h
 
 c:
 	clang main.c -o out.bin $(FLAGS) -O3
