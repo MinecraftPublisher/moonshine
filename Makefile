@@ -1,5 +1,5 @@
 FLAGS = -Wno-incompatible-library-redeclaration -nostartfiles
-SIZE_FLAGS = -flto -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -s -fno-unwind-tables -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-ident -fvisibility=hidden -march=native -Wl,--build-id=none
+SIZE_FLAGS = -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -s -fno-unwind-tables -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-ident -fvisibility=hidden -march=native -Wl,--build-id=none
 
 all: m4 c test
 
