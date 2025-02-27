@@ -1,5 +1,5 @@
 FLAGS = -Wno-incompatible-library-redeclaration -nostartfiles
-SIZE_FLAGS = -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -s -fno-unwind-tables -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-ident -fvisibility=hidden -march=native -Wl,--build-id=none
+SIZE_FLAGS = -Wl,--undefined=main -flto -Oz -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--strip-all -finline-hint-functions -fno-builtin -Wl,--print-gc-sections -fno-unwind-tables -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-ident -fvisibility=hidden -march=native -Wl,--build-id=none
 
 all: m4 c test
 
@@ -11,6 +11,16 @@ c:
 
 test:
 	./out.bin
+
+# useless. it don't work.
+# profile:
+# 	clang -D__MOONSHINE_PROFILER main.c -o out.bin.profile $(FLAGS) $(SIZE_FLAGS) -fprofile-generate
+# 	echo NOTE: Let the program run completely and provide it with typical inputs.
+# 	./out.bin.profile
+# 	llvm-profdata merge -output=default.profdata profile.profraw
+# 	rm -rf profile.profraw
+# 	clang main.c -o out.bin.release $(FLAGS) $(SIZE_FLAGS) -fprofile-use
+#   rm -rf profile.profdata
 
 release:
 	clang main.c -o out.bin.release $(FLAGS) $(SIZE_FLAGS)

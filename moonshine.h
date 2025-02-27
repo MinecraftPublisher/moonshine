@@ -38,8 +38,9 @@
     }
 #define instance(__type, kind, ...) ((struct __type) { .type = cat(kind, _type), .data.kind = { __VA_ARGS__ } })
 #define scope(name, ...)                                                                                                       \
-    for (auto name unused = __VA_ARGS__, datatype_break = (typeof(name)) 0; datatype_break == (typeof(name)) 0;                \
-         datatype_break = (typeof(name)) 1)
+    _Pragma("unroll") for (auto name unused = __VA_ARGS__, datatype_break = (typeof(name)) 0;                                  \
+                           datatype_break == (typeof(name)) 0;                                                                 \
+                           datatype_break = (typeof(name)) 1)
 #define match(value)                          scope(parent_value, &value) switch (parent_value->type)
 #define algebra_field_sum(extra, time, field) +sizeof(cat(extra, field))
 #define algebra_of_field(extra, time, field)  scope(field, ({ parent_value->data.extra.cat4(object_type_, extra, _, time); }))
@@ -1085,17 +1086,16 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
 __attribute__((deprecated(LIBC_WARNINGS_TEXT("strdup"))))
 #endif
 
-__attribute__((diagnose_as_builtin(__builtin_strdup, 1)))
-t(char) strdup(ctring str) {
-    const u8   len = strlen(str);
-    const auto obj = new (char, len + 1);
+// ctring strdup(ctring str) {
+//     const u8   len = strlen(str);
+//     string obj = alloc(len + 1);
 
-    for (u8 i = 0; i < len; i++) obj[ 0 ][ i ] = str[ i ];
+//     for (u8 i = 0; i < len; i++) obj[ i ] = str[ i ];
 
-    obj[ 0 ][ len ] = 0;
+//     obj[ len ] = 0;
 
-    return obj;
-}
+//     return obj;
+// }
 
 var *__reverse_array(var *array) {
     const u4 element_size = element_size(array);
@@ -1188,29 +1188,41 @@ linkednode *index_to_ptr(linkedlist *list, u8 index) {
     else if (index == last - 2) return list->tail->back[ 1 ];
     // clang-format on
 
+    linkednode *current;
+    u8          current_index;
+
     // decide whether to start from the head or the tail of the list
-    if (index < (last / 2)) { // start from the head
-        byte body  = 0;
-        auto start = list->head->front[ 1 ]->front;
-        for (u8 i = 3; i <= index; i++) {
-            if (start[ body ] == NULL) return NULL;
-            if (i == index) return start[ body ];
-            if (body) start = start[ 1 ]->front;
-            body = 1 - body;
+    if (index <= (last / 2)) { // start from the head
+        current       = list->head;
+        current_index = 0;
+        while (current && current_index < index) {
+            if (current->front[ 1 ] && current_index + 2 <= index) {
+                current = current->front[ 1 ];
+                current_index += 2;
+            } else if (current->front[ 0 ]) {
+                current = current->front[ 0 ];
+                current_index += 1;
+            } else {
+                break;
+            }
         }
     } else { // start from the tail
-        byte body = 0;
-        auto end  = list->tail->back[ 1 ]->back;
-        for (u8 i = last - 3; i >= index; i--) {
-            if (end[ body ] == NULL) return NULL;
-            if (i == index) return end[ body ];
-            if (i == 0) return NULL;
-            if (body) end = end[ 1 ]->back;
-            body = 1 - body;
+        current       = list->tail;
+        current_index = list->size - 1;
+        while (current && current_index > index) {
+            if (current->back[ 1 ] && current_index - 2 >= index) {
+                current = current->back[ 1 ];
+                current_index -= 2;
+            } else if (current->back[ 0 ]) {
+                current = current->back[ 0 ];
+                current_index -= 1;
+            } else {
+                break;
+            }
         }
     }
 
-    return NULL;
+    return (current_index == index) ? current : NULL;
 }
 
 // This function will return a pointer to the linkednode, if free = false, and a pointer to the data contained inside, if free =
@@ -1233,6 +1245,8 @@ overload var pop_item(linkedlist *list, bool free, linkednode *item) {
     }
 
     item->front[ 0 ] = item->front[ 1 ] = item->back[ 0 ] = item->back[ 1 ] = 0;
+
+    list->size--;
 
     auto ptr = item->data;
     if (free) {
@@ -1263,7 +1277,19 @@ line void front_insert(linkedlist *list, u8 index) { return front_insert(list, i
 
 string *environ;
 
-[[noreturn]] void __moonshine_start(int argc, string *argv, string *envp) {
+#ifdef __MOONSHINE_PROFILER
+extern void __llvm_profile_reset_counters(void);
+extern int  __llvm_profile_write_file(void);
+extern void __llvm_profile_set_filename(const char *name);
+#endif
+
+[[noreturn]] __attribute__((used)) void __moonshine_start(int argc, string *argv, string *envp) {
+#ifdef __MOONSHINE_PROFILER
+    static const char profile_filename[] __attribute__((used)) = "profile.profraw";
+    __llvm_profile_reset_counters();
+    __llvm_profile_set_filename(profile_filename);
+#endif
+
     global_page_table = PageTable();
     environ           = envp;
 
@@ -1277,7 +1303,13 @@ string *environ;
                          : "r"((long) argc), "r"(argv)
                          : "rdi", "rsi", "rax", "memory");
 
+#ifdef __MOONSHINE_PROFILER
+    extern int __llvm_profile_write_file(void);
+    __llvm_profile_write_file();
+#endif
+
     exit(exit_code);
+    __builtin_unreachable();
 }
 
 __attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void) {
@@ -1357,7 +1389,11 @@ FILE *fopen(const char *pathname, const char *mode) {
     int fd = syscall5(SYS_openat, AT_FDCWD, pathname, flags, perms);
     if (fd < 0) return 0;
 
+#ifdef __MOONSHINE_PROFILER
+    FILE *file = (FILE *) __bare_alloc(sizeof(FILE));
+#else
     FILE *file = (FILE *) alloc(sizeof(FILE));
+#endif
     if (!file) {
         (void) syscall2(SYS_close, fd);
         return 0;
@@ -1381,7 +1417,11 @@ size_t fwrite(const void *ptr, size_t size, size_t count, FILE *stream) {
 int fclose(FILE *stream) {
     if (!stream) return -1;
     int ret = syscall2(SYS_close, stream->fd);
+#ifdef __MOONSHINE_PROFILER
+    __bare_munmap((var) stream, sizeof(FILE));
+#else
     release((var) stream);
+#endif
     return (ret < 0) ? -1 : 0;
 }
 
@@ -1405,5 +1445,13 @@ size_t fread(void *ptr, size_t size, size_t count, FILE *stream) {
 }
 
 long ftell(FILE *stream) { return syscall4(SYS_lseek, stream->fd, 0, SEEK_CUR); }
+
+#ifdef __MOONSHINE_PROFILER
+void *__dso_handle = (void *) 0;
+int   atexit(void (*func)(void)) {
+    func(); // Call immediately since we don’t buffer exits
+    return 0;
+}
+#endif
 
 #endif
