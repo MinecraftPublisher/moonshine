@@ -1,3 +1,6 @@
+// Compile any program that uses this library with `-nostartfiles -nostdlib` :)
+// This library probably only works with clang/llvm, so don't try gcc...
+
 #ifndef moonshine_header
 #define moonshine_header
 
@@ -8,8 +11,9 @@
 
 #include "moonshine.m4.h"
 
-#define line   __attribute__((overloadable, flatten))
-#define unused __attribute__((unused))
+#define overload __attribute__((overloadable))
+#define line     overload flatten
+#define unused   __attribute__((unused))
 
 // algebraic data type macros
 
@@ -23,6 +27,7 @@
     struct head body { EXPAND_general(algebra_format, cat(type_, head body), tail body) } head body;
 #define algebra_type_size_inner(extra, time, ...) typedef __VA_ARGS__ cat3(type_, extra, time);
 #define algebra_type_size(extra, time, ...)       EXPAND_general(algebra_type_size_inner, cat(head __VA_ARGS__, _), tail __VA_ARGS__)
+// TODO: Add datatype initializations such as binarytree_leaf(int v), etc
 #define datatype(node_name, body)                                                                                              \
     typedef struct node_name node_name;                                                                                        \
     EXPAND_general2(algebra_type_size, node_name, expand body) struct node_name {                                              \
@@ -30,7 +35,7 @@
         union {                                                                                                                \
             EXPAND_general2(algebra_argument, node_name, expand body)                                                          \
         } data;                                                                                                                \
-    };
+    }
 #define instance(__type, kind, ...) ((struct __type) { .type = cat(kind, _type), .data.kind = { __VA_ARGS__ } })
 #define scope(name, ...)                                                                                                       \
     for (auto name unused = __VA_ARGS__, datatype_break = (typeof(name)) 0; datatype_break == (typeof(name)) 0;                \
@@ -46,6 +51,8 @@
     default:
 
 // array macros
+
+#define obj(type) (type *) alloc(sizeof(type))
 
 #define new(a, ...)         ((a **) new_x(a __VA_OPT__(, ) __VA_ARGS__, new2, new1)(a __VA_OPT__(, ) __VA_ARGS__))
 #define new_x(a, b, c, ...) c
@@ -342,13 +349,15 @@ void puts_float(const float number) {
     }
 }
 
-__attribute__((flatten)) void puts_hex(const unsigned char hex) {
+#define flatten __attribute__((flatten))
+
+flatten void puts_hex(const unsigned char hex) {
     const char hex_chars[] = "0123456789abcdef";
     putchar(hex_chars[ hex >> 4 ]);
     putchar(hex_chars[ hex & 0x0F ]);
 }
 
-__attribute__((flatten)) void puts_pointer(const void *ptr) {
+flatten void puts_pointer(const void *ptr) {
     puts_static("0x");
 
     unsigned long address = (unsigned long) ptr;
@@ -983,7 +992,7 @@ const var *__new_array(const string type_name, const u4 type_size, const u4 coun
 // 2. Based on the capacity, detect whether we should or shouldn't reallocate the memory
 // 3. eg. if an item is popped, we may keep that memory intact so that further allocations and memory copies will be unnecessary
 
-__attribute__((flatten)) void unsafe_extend(
+flatten void unsafe_extend(
     var      *array_ref,
     const var array_from_u4,
     const var array_base,
@@ -1117,6 +1126,140 @@ t(char) strndup(ctring str, u8 len) {
 
     return obj;
 }
+
+typedef struct linkednode linkednode;
+
+// A typical node in a linked list.
+struct linkednode {
+    linkednode *back[ 2 ];  // Double-index back-refernece for the node
+    linkednode *front[ 2 ]; // Double-index forward-feference for the node
+    var         data;       // The data for the linked list node
+};
+
+typedef struct linkedlist {
+    u8          size; // The size of a linked list
+    linkednode *head; // The head pointer for the linked list
+    linkednode *tail; // The tail pointer for the linked list
+} linkedlist;
+
+// Create an empty linked list.
+flatten linkedlist *create_linkedlist() {
+    linkedlist list     = { .size = 0, .head = NULL, .tail = NULL };
+    auto       list_ref = obj(linkedlist);
+    *list_ref           = list;
+    return list_ref;
+}
+
+// Push a value to the end of a linked list.
+void push_linkedlist(linkedlist *list, var value) {
+    linkednode node;
+    auto       node_ref = obj(linkednode);
+    node.data           = value;
+
+    auto follower      = list->tail;
+    auto past_follower = list->tail == NULL ? NULL : list->tail->back[ 0 ];
+
+    node.back[ 0 ]  = follower;
+    node.back[ 1 ]  = past_follower;
+    node.front[ 0 ] = node.front[ 1 ] = NULL;
+
+    if (follower) {
+        follower->front[ 0 ] = node_ref;
+        if (past_follower) past_follower->front[ 1 ] = node_ref;
+    }
+
+    list->tail = node_ref;
+    if (!list->head) list->head = node_ref;
+
+    *node_ref = node;
+}
+
+linkednode *index_to_ptr(linkedlist *list, u8 index) {
+    u8 last = list->size - 1;
+
+    // perform intuitive access checks
+    // clang-format off
+    if (list->head == NULL) return NULL;
+    else if (index == 0) return list->head;
+    else if (index == last) return list->tail;
+    else if (index == 1) return list->head->front[ 0 ];
+    else if (index == 2) return list->head->front[ 1 ];
+    else if (index == last - 1) return list->tail->back[ 0 ];
+    else if (index == last - 2) return list->tail->back[ 1 ];
+    // clang-format on
+
+    // decide whether to start from the head or the tail of the list
+    if (index < (last / 2)) { // start from the head
+        byte body  = 0;
+        auto start = list->head->front[ 1 ]->front;
+        for (u8 i = 3; i <= index; i++) {
+            if (start[ body ] == NULL) return NULL;
+            if (i == index) return start[ body ];
+            if (body) start = start[ 1 ]->front;
+            body = 1 - body;
+        }
+    } else { // start from the tail
+        byte body = 0;
+        auto end  = list->tail->back[ 1 ]->back;
+        for (u8 i = last - 3; i >= index; i--) {
+            if (end[ body ] == NULL) return NULL;
+            if (i == index) return end[ body ];
+            if (i == 0) return NULL;
+            if (body) end = end[ 1 ]->back;
+            body = 1 - body;
+        }
+    }
+
+    return NULL;
+}
+
+// This function will return a pointer to the linkednode, if free = false, and a pointer to the data contained inside, if free =
+// true.
+overload var pop_item(linkedlist *list, bool free, linkednode *item) {
+    if (item == NULL) return NULL;
+
+    if (list->tail == item) list->tail = item->back[ 0 ];
+    if (item->front[ 0 ]) {
+        item->front[ 0 ]->back[ 0 ] = item->front[ 0 ]->back[ 1 ];
+        item->front[ 0 ]->back[ 1 ] = item->back[ 0 ];
+        if (item->front[ 1 ]) item->front[ 1 ]->back[ 1 ] = item->front[ 0 ]->back[ 0 ];
+    }
+
+    if (list->head == item) list->head = item->front[ 0 ];
+    else if (item->back[ 0 ]) {
+        item->back[ 0 ]->front[ 0 ] = item->back[ 0 ]->front[ 1 ];
+        item->back[ 0 ]->front[ 1 ] = item->front[ 0 ];
+        if (item->back[ 1 ]) item->back[ 1 ]->front[ 1 ] = item->back[ 0 ]->back[ 0 ];
+    }
+
+    item->front[ 0 ] = item->front[ 1 ] = item->back[ 0 ] = item->back[ 1 ] = 0;
+
+    auto ptr = item->data;
+    if (free) {
+        release(item);
+        return ptr;
+    } else {
+        return item;
+    }
+}
+
+// This function will return a pointer to the linkednode, if free = false, and a pointer to the data contained inside, if free =
+// true.
+line var pop_item(linkedlist *list, bool free, u8 index) { return pop_item(list, free, index_to_ptr(list, index)); }
+
+overload void front_insert(linkedlist *list, linkednode *node) {
+    pop_item(list, false, node);
+    if (list->head) {
+        node->front[ 0 ]                  = list->head;
+        node->front[ 1 ]                  = list->head->front[ 0 ];
+        list->head->back[ 0 ]             = node;
+        list->head->front[ 0 ]->back[ 1 ] = node;
+    }
+    if (list->head == list->tail) list->tail = node;
+    list->head = node;
+}
+
+line void front_insert(linkedlist *list, u8 index) { return front_insert(list, index_to_ptr(list, index)); }
 
 string *environ;
 
