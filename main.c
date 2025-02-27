@@ -1,6 +1,5 @@
 // This is the test unit, not the actual code.
 
-#define __MOONSHINE_LIBC_WARNINGS
 #include "moonshine.h"
 
 datatype(binarytree, ((leaf, int), (node, binarytree *, int, binarytree *) ));

@@ -8,6 +8,9 @@
 
 #include "moonshine.m4.h"
 
+#define line   __attribute__((overloadable, flatten))
+#define unused __attribute__((unused))
+
 // algebraic data type macros
 
 #define expand(...)                         __VA_ARGS__
@@ -29,15 +32,12 @@
         } data;                                                                                                                \
     };
 #define instance(__type, kind, ...) ((struct __type) { .type = cat(kind, _type), .data.kind = { __VA_ARGS__ } })
-
 #define scope(name, ...)                                                                                                       \
-    for (auto name __attribute__((unused)) = __VA_ARGS__, datatype_break = (typeof(name)) 0;                                   \
-         datatype_break == (typeof(name)) 0;                                                                                   \
+    for (auto name unused = __VA_ARGS__, datatype_break = (typeof(name)) 0; datatype_break == (typeof(name)) 0;                \
          datatype_break = (typeof(name)) 1)
-
 #define match(value)                          scope(parent_value, &value) switch (parent_value->type)
 #define algebra_field_sum(extra, time, field) +sizeof(cat(extra, field))
-#define algebra_of_field(extra, time, field) scope(field, ({ parent_value->data.extra.cat4(object_type_, extra, _, time); }))
+#define algebra_of_field(extra, time, field)  scope(field, ({ parent_value->data.extra.cat4(object_type_, extra, _, time); }))
 #define of(type, ...)                                                                                                          \
     break;                                                                                                                     \
     case cat(type, _type): EXPAND_general(algebra_of_field, type, __VA_ARGS__)
@@ -139,32 +139,6 @@ enum glob_type {
     type_unknown
 };
 
-void globprint(const enum glob_type type, const char *value_text, const char *text, const void *value);
-
-#define print_local(extra, time, value)                                                                                        \
-    ({                                                                                                                         \
-        __auto_type obj = value;                                                                                               \
-        _Generic(                                                                                                              \
-            obj,                                                                                                               \
-            char: globprint(type_char, "", "char", &obj),                                                                      \
-            int: globprint(type_int, #value, "int", &obj),                                                                     \
-            string: globprint(type_string, "", "string", &obj),                                                                \
-            bool: globprint(type_bool, "", "bool", &obj),                                                                      \
-            u4: globprint(type_u32, "", "u32", &obj),                                                                          \
-            float: globprint(type_float, "", "float", &obj),                                                                   \
-            double: globprint(type_double, "", "double", &obj),                                                                \
-            u8: globprint(type_u64, "", "u64", &obj),                                                                          \
-            i8: globprint(type_i64, "", "i64", &obj),                                                                          \
-            var: globprint(type_pointer, "", "pointer", &obj),                                                                 \
-            default: globprint(type_unknown, #value, "unknown", &obj));                                                        \
-    });
-
-#define print(...)                                                                                                             \
-    ({                                                                                                                         \
-        EXPAND_general(print_local, "broken print", __VA_ARGS__);                                                              \
-        putchar('\n');                                                                                                         \
-    })
-
 #define switch_item(value, code)                                                                                               \
     case value: {                                                                                                              \
         code;                                                                                                                  \
@@ -175,26 +149,6 @@ void globprint(const enum glob_type type, const char *value_text, const char *te
     } break
 
 #define decast(type) (*((type *) value))
-
-#define puts(value)        write(value, strlen(value), stdout)
-#define puts_static(value) write(value, sizeof(value), stdout)
-
-#define __demon(code, ID)                                                                                                      \
-    ({                                                                                                                         \
-        flush(stdout);                                                                                                         \
-        auto cat(fork_, ID) = fork();                                                                                          \
-        if (cat(fork_, ID) < 0) {                                                                                              \
-            puts_static("Failed to fork!\n");                                                                                  \
-            exit(1);                                                                                                           \
-        } else if (cat(fork_, ID) == 0) {                                                                                      \
-            code;                                                                                                              \
-            exit(0);                                                                                                           \
-            byte *osjdoijsoij = (byte *) (0 + 129387 - 129387);                                                                \
-            (void) *osjdoijsoij;                                                                                               \
-        };                                                                                                                     \
-        cat(fork_, ID);                                                                                                        \
-    })
-#define demon(code) __demon(code, expand(__COUNTER__))
 
 #define syscall1(num)                                                                                                          \
     ({                                                                                                                         \
@@ -260,13 +214,11 @@ void globprint(const enum glob_type type, const char *value_text, const char *te
         result;                                                                                                                \
     })
 
-void exit(const int exit_code) {
-    const uint64_t syscall_number = 60;
-
-    (void) syscall2(syscall_number, exit_code);
-
-    __builtin_unreachable();
-}
+#define putchar(x)                                                                                                             \
+    ({                                                                                                                         \
+        byte y = x;                                                                                                            \
+        write((char *) &y, 1, stdout);                                                                                         \
+    })
 
 #define stdin  0
 #define stdout 1
@@ -278,6 +230,14 @@ static char buffer[ BUFFER_SIZE ];
 static int  buffer_index = 0;
 
 int flush(int fd);
+
+int flush(int fd) {
+    if (buffer_index == 0) { return 0; }
+
+    int result   = syscall4(1, fd, buffer, buffer_index);
+    buffer_index = 0;
+    return result;
+}
 
 int write(const char *ptr, const int size, const int fd) {
     int total_written = 0;
@@ -308,19 +268,274 @@ int write(const char *ptr, const int size, const int fd) {
     return total_written;
 }
 
-int flush(int fd) {
-    if (buffer_index == 0) { return 0; }
+#define puts_size(value, size) write(value, size, stdout)
+#define puts(value)                                                                                                            \
+    ({                                                                                                                         \
+        auto v = value;                                                                                                        \
+        puts_size(v, strlen(v));                                                                                               \
+    })
+#define puts_static(value) puts_size(value, sizeof(value))
 
-    int result   = syscall4(1, fd, buffer, buffer_index);
-    buffer_index = 0;
+void puts_static_ptr(car value, u8 size) { puts_size(*(string *) value, size); }
+
+#define print_local(extra, time, value)                                                                                        \
+    ({                                                                                                                         \
+        if (#value[ 0 ] == '"') {                                                                                              \
+            auto obj = value;                                                                                                  \
+            puts_static_ptr((car) (u8) & obj, sizeof(value));                                                                  \
+        } else {                                                                                                               \
+            printer(value, #value);                                                                                            \
+        }                                                                                                                      \
+    });
+
+#define print(...)                                                                                                             \
+    ({                                                                                                                         \
+        EXPAND_general(print_local, "broken print", __VA_ARGS__);                                                              \
+        putchar('\n');                                                                                                         \
+    })
+
+void puts_number(const int64_t number, const bool is_signed) {
+    uint64_t n;
+    if (is_signed && number < 0) {
+        putchar('-');
+        n = (uint64_t) (~number) + 1;
+    } else {
+        n = (uint64_t) number;
+    }
+
+    char buffer[ 20 ];
+    int  pos = 20;
+
+    do {
+        buffer[ --pos ] = '0' + (n % 10);
+        n /= 10;
+    } while (n != 0);
+
+    for (int i = pos; i < 20; ++i) { putchar(buffer[ i ]); }
+}
+
+void puts_float(const float number) {
+    int   int_part  = (int) number;
+    float frac_part = number - int_part;
+
+    if (int_part < 0) {
+        putchar('-');
+        int_part = -int_part;
+    }
+
+    char int_buffer[ 12 ];
+    int  i = 0;
+    do {
+        int_buffer[ i++ ] = (int_part % 10) + '0';
+        int_part /= 10;
+    } while (int_part > 0);
+
+    while (i > 0) { putchar(int_buffer[ --i ]); }
+
+    putchar('.');
+
+    for (int j = 0; j < 6; j++) {
+        frac_part *= 10;
+        int frac_digit = (int) frac_part;
+        putchar(frac_digit + '0');
+        frac_part -= frac_digit;
+    }
+}
+
+__attribute__((flatten)) void puts_hex(const unsigned char hex) {
+    const char hex_chars[] = "0123456789abcdef";
+    putchar(hex_chars[ hex >> 4 ]);
+    putchar(hex_chars[ hex & 0x0F ]);
+}
+
+__attribute__((flatten)) void puts_pointer(const void *ptr) {
+    puts_static("0x");
+
+    unsigned long address = (unsigned long) ptr;
+
+    char hex_buffer[ 16 ];
+    int  i = 0;
+
+    do {
+        int digit = address % 16;
+        if (digit < 10) {
+            hex_buffer[ i++ ] = digit + '0';
+        } else {
+            hex_buffer[ i++ ] = (digit - 10) + 'a';
+        }
+        address /= 16;
+    } while (address > 0);
+
+    while (i > 0) { putchar(hex_buffer[ --i ]); }
+}
+
+__attribute__((diagnose_as_builtin(__builtin_strlen, 1))) unsigned long strlen(ctring str) {
+    unsigned long len = 0;
+    while (str[ len ] != '\0') len++;
+    return len;
+}
+
+#define cast_index(arr, type, index) ((type *) arr)[ index ]
+#define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
+
+#define align_value(value) ((u8) ((((value) + 15) & ~15ULL)))
+const int   magic_number = 0xB00E;
+typedef int magic_type;
+const int   __addon_size = 2 * sizeof(u4) + sizeof(string) + sizeof(magic_type);
+const int   addon_size   = align_value(__addon_size);
+const int   spacer_size  = addon_size - __addon_size;
+
+#define MAP_SHARED    0x01
+#define MAP_PRIVATE   0x02
+#define PROT_READ     0x1
+#define PROT_WRITE    0x2
+#define PROT_EXEC     0x4
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
+
+var __bare_mmap(const var addr, const u8 len, const int prot, const int flags, const int fd, const int64_t offset)
+    [[clang::allocating]] {
+    const u8 syscall_number = 9;
+
+    const var result = (var) syscall7(syscall_number, addr, len, prot, flags, fd, offset);
+
+    if ((int64_t) result == -1) {
+        errno = -(int64_t) result;
+        return (void *) -1;
+    }
+
     return result;
 }
 
-#define putchar(x)                                                                                                             \
+int __bare_munmap(const var addr, const uint64_t len) {
+    const uint64_t syscall_number = 11;
+    const int      result         = syscall3(syscall_number, addr, len);
+
+    return result;
+}
+
+var __bare_alloc(const uint64_t size) [[clang::allocating]] {
+    return __bare_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+}
+
+#define __demon(code, ID)                                                                                                      \
     ({                                                                                                                         \
-        byte y = x;                                                                                                            \
-        write((char *) &y, 1, stdout);                                                                                         \
+        flush(stdout);                                                                                                         \
+        auto cat(fork_, ID) = fork();                                                                                          \
+        if (cat(fork_, ID) < 0) {                                                                                              \
+            puts_static("Failed to fork!\n");                                                                                  \
+            exit(1);                                                                                                           \
+        } else if (cat(fork_, ID) == 0) {                                                                                      \
+            code;                                                                                                              \
+            exit(0);                                                                                                           \
+            byte *osjdoijsoij = (byte *) (0 + 129387 - 129387);                                                                \
+            (void) *osjdoijsoij;                                                                                               \
+        };                                                                                                                     \
+        cat(fork_, ID);                                                                                                        \
     })
+#define demon(code) __demon(code, expand(__COUNTER__))
+
+int fork() {
+    const uint64_t syscall_number = 57;
+    const int      pid            = syscall1(syscall_number);
+
+    return pid;
+}
+
+void exit(const int exit_code) {
+    const uint64_t syscall_number = 60;
+
+    (void) syscall2(syscall_number, exit_code);
+
+    __builtin_unreachable();
+}
+
+int wait(const int *status) {
+    const uint64_t syscall_number = 9;
+    const int      result         = syscall3(syscall_number, -1, status);
+
+    return result;
+}
+
+// Check if the current process tree owns a pointer. Expensive, do not use
+// sparingly.
+bool mine(const ptr pointer) {
+    bool *glob_var = __bare_alloc(sizeof(bool));
+
+    (void) demon({
+        *glob_var = 0;
+        byte *x   = pointer;
+        byte  y   = *x;
+        (void) y;
+        __asm__ volatile("mov %[ptr], %%edi" : : [ptr] "m"(*(void **) pointer) : "edi");
+        *glob_var = 1;
+    });
+
+    wait(NULL);
+    bool output = *glob_var;
+
+    __bare_munmap(glob_var, sizeof(bool));
+
+    return output;
+}
+
+line void printer(const char x, ctring unused text) { putchar(x); }
+line void printer(ctring x, ctring unused text) { puts(x); }
+line void printer(const int x, ctring text) {
+    if (text[ 0 ] == '\'') putchar(x);
+    else
+        puts_number(x, 1);
+}
+line void printer(const long x, ctring unused text) { puts_number(x, true); }
+line void printer(const unsigned long x, ctring unused text) { puts_number(x, false); }
+line void printer(const u4 x, ctring unused text) { puts_number(x, false); }
+line void printer(const short x, ctring unused text) { puts_number(x, false); }
+line void printer(const unsigned short x, ctring unused text) { puts_number(x, false); }
+line void printer(const float x, ctring unused text) { puts_float(x); }
+line void printer(const double x, ctring unused text) { puts_float(x); }
+line void printer(const bool x, ctring unused text) {
+    if (x) puts_static("true");
+    else if (x == 0) {
+        puts_static("false");
+    } else {
+        putchar(x);
+    }
+}
+line void printer(var x, ctring unused text) {
+    if (mine(x)) {
+        if (mine(*(var *) x)) {
+            // handle array
+            var array = *(var *) x;
+
+            array = cast_ptr(array, byte, -addon_size);
+
+            if (cast_index(array, magic_type, 0) != magic_number) goto UNKNOWN;
+            array = cast_ptr(array, magic_type, 1);
+
+            string array_type = cast_index(array, string, 0);
+
+            array = cast_ptr(array, string, 1);
+
+            u4 element_count = cast_index(array, u4, 1);
+
+            puts_static("<(");
+            puts(array_type);
+            puts_static(")_array[");
+            puts_number(element_count, false);
+            puts_static("]>");
+
+            return;
+        }
+    }
+
+UNKNOWN:;
+    puts_static("<pointer ");
+    puts_pointer(x);
+    puts_static(" (");
+    puts_number((u8) x, false);
+    puts_static(")>");
+}
+line void printer(car x, ctring unused text) { printer((var) x, text); }
 
 #define SYS_read 0
 
@@ -343,14 +558,6 @@ void malloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "alloc"))
 void realloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "remap")));
 void free() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "release")));
 #endif
-
-#define MAP_SHARED    0x01
-#define MAP_PRIVATE   0x02
-#define PROT_READ     0x1
-#define PROT_WRITE    0x2
-#define PROT_EXEC     0x4
-#define MAP_FIXED     0x10
-#define MAP_ANONYMOUS 0x20
 
 __attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) byte strcmp(ctring left, ctring right) {
     while (*left && (*left == *right) && left++ && right++);
@@ -387,31 +594,6 @@ __attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var 
     ctring src  = _src;
 
     for (u8 i = 0; i < n; i++) dest[ i ] = src[ i ];
-}
-
-var __bare_mmap(const var addr, const u8 len, const int prot, const int flags, const int fd, const int64_t offset)
-    [[clang::allocating]] {
-    const u8 syscall_number = 9;
-
-    const var result = (var) syscall7(syscall_number, addr, len, prot, flags, fd, offset);
-
-    if ((int64_t) result == -1) {
-        errno = -(int64_t) result;
-        return (void *) -1;
-    }
-
-    return result;
-}
-
-int __bare_munmap(const var addr, const uint64_t len) {
-    const uint64_t syscall_number = 11;
-    const int      result         = syscall3(syscall_number, addr, len);
-
-    return result;
-}
-
-var __bare_alloc(const uint64_t size) [[clang::allocating]] {
-    return __bare_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 }
 
 #define SYS_getpid 39
@@ -540,8 +722,6 @@ static int compare_locations(const void *a, const void *b) {
     return 0;
 }
 
-#define align_value(value) ((u8) ((((value) + 15) & ~15ULL)))
-
 struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
     if (!page->dirty) return page->last_result;
 
@@ -628,6 +808,8 @@ void clean_pages() {
     LEAVE_PAGE:;
     }
 }
+
+// TODO: Place page pointer and pointer size behind the allocated pointer
 
 __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var alloc(const u8 _len)
     [[clang::allocating]] {
@@ -770,59 +952,8 @@ __attribute__((diagnose_as_builtin(__builtin_realloc, 1, 2))) var remap(const va
     return new_ptr;
 }
 
-__attribute__((diagnose_as_builtin(__builtin_strlen, 1))) unsigned long strlen(ctring str) {
-    unsigned long len = 0;
-    while (str[ len ] != '\0') len++;
-    return len;
-}
-
 #define t(type) type **
 #define de(obj) (*(obj))
-
-int fork() {
-    const uint64_t syscall_number = 57;
-    const int      pid            = syscall1(syscall_number);
-
-    return pid;
-}
-
-int wait(const int *status) {
-    const uint64_t syscall_number = 9;
-    const int      result         = syscall3(syscall_number, -1, status);
-
-    return result;
-}
-
-// Check if the current process tree owns a pointer. Expensive, do not use
-// sparingly.
-bool mine(const ptr pointer) {
-    bool *glob_var = __bare_alloc(sizeof(bool));
-
-    (void) demon({
-        *glob_var = 0;
-        byte *x   = pointer;
-        byte  y   = *x;
-        (void) y;
-        __asm__ volatile("mov %[ptr], %%edi" : : [ptr] "m"(*(void **) pointer) : "edi");
-        *glob_var = 1;
-    });
-
-    wait(NULL);
-    bool output = *glob_var;
-
-    __bare_munmap(glob_var, sizeof(bool));
-
-    return output;
-}
-
-#define cast_index(arr, type, index) ((type *) arr)[ index ]
-#define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
-
-const int   magic_number = 0xB00E;
-typedef int magic_type;
-const int   __addon_size = 2 * sizeof(u4) + sizeof(string) + sizeof(magic_type);
-const int   addon_size   = align_value(__addon_size);
-const int   spacer_size  = addon_size - __addon_size;
 
 const var *__new_array(const string type_name, const u4 type_size, const u4 count) [[clang::allocating]] {
     // string name, and one place for the special code
@@ -986,154 +1117,6 @@ t(char) strndup(ctring str, u8 len) {
 
     return obj;
 }
-
-void puts_number(const int64_t number, const bool is_signed) {
-    uint64_t n;
-    if (is_signed && number < 0) {
-        putchar('-');
-        n = (uint64_t) (~number) + 1;
-    } else {
-        n = (uint64_t) number;
-    }
-
-    char buffer[ 20 ];
-    int  pos = 20;
-
-    do {
-        buffer[ --pos ] = '0' + (n % 10);
-        n /= 10;
-    } while (n != 0);
-
-    for (int i = pos; i < 20; ++i) { putchar(buffer[ i ]); }
-}
-
-void puts_float(const float number) {
-    int   int_part  = (int) number;
-    float frac_part = number - int_part;
-
-    if (int_part < 0) {
-        putchar('-');
-        int_part = -int_part;
-    }
-
-    char int_buffer[ 12 ];
-    int  i = 0;
-    do {
-        int_buffer[ i++ ] = (int_part % 10) + '0';
-        int_part /= 10;
-    } while (int_part > 0);
-
-    while (i > 0) { putchar(int_buffer[ --i ]); }
-
-    putchar('.');
-
-    for (int j = 0; j < 6; j++) {
-        frac_part *= 10;
-        int frac_digit = (int) frac_part;
-        putchar(frac_digit + '0');
-        frac_part -= frac_digit;
-    }
-}
-
-__attribute__((flatten)) void puts_hex(const unsigned char hex) {
-    const char hex_chars[] = "0123456789abcdef";
-    putchar(hex_chars[ hex >> 4 ]);
-    putchar(hex_chars[ hex & 0x0F ]);
-}
-
-__attribute__((flatten)) void puts_pointer(const void *ptr) {
-    puts_static("0x");
-
-    unsigned long address = (unsigned long) ptr;
-
-    char hex_buffer[ 16 ];
-    int  i = 0;
-
-    do {
-        int digit = address % 16;
-        if (digit < 10) {
-            hex_buffer[ i++ ] = digit + '0';
-        } else {
-            hex_buffer[ i++ ] = (digit - 10) + 'a';
-        }
-        address /= 16;
-    } while (address > 0);
-
-    while (i > 0) { putchar(hex_buffer[ --i ]); }
-}
-
-// Massive TODO
-void globprint(const enum glob_type type, const char *value_text, const char *text, const void *value) {
-    switch (type) {
-        switch_item(type_char, putchar(decast(char)));
-        switch_item(type_int, {
-            if (value_text[ 0 ] == '\'') putchar(decast(char));
-            else { puts_number(decast(int), 1); }
-        });
-        switch_item(type_long, puts_number(decast(long), 1));
-        switch_item(type_long_long, puts_number(decast(long long), 1));
-        switch_item(type_float, puts_float(decast(float)));
-        switch_item(type_double, puts_float(decast(double)));
-        switch_item(type_u64, puts_number(decast(u8), 0));
-        switch_item(type_u32, puts_number(decast(u4), 0));
-        switch_item(type_string, puts(decast(char *)));
-        switch_item(type_bool, {
-            if (decast(bool)) puts_static("true");
-            else
-                puts_static("false");
-        });
-        switch_item(type_pointer, {
-            puts_static("<pointer ");
-            puts_pointer(decast(var));
-            puts_static(" (");
-            puts_number(decast(u8), false);
-            puts_static(")>");
-        });
-
-        switch_none({
-            if (mine(decast(var))) {
-                if (mine(*decast(var *))) {
-                    // handle array
-                    var array = *decast(var *);
-
-                    array = cast_ptr(array, byte, -addon_size);
-
-                    if (cast_index(array, magic_type, 0) != magic_number) goto UNKNOWN;
-                    array = cast_ptr(array, magic_type, 1);
-
-                    string array_type = cast_index(array, string, 0);
-
-                    array = cast_ptr(array, string, 1);
-
-                    u4 element_count = cast_index(array, u4, 1);
-
-                    puts_static("<(");
-                    puts(array_type);
-                    puts_static(")_array[");
-                    puts_number(element_count, false);
-                    puts_static("]>");
-
-                    return;
-                }
-            }
-
-        UNKNOWN:;
-            if (eq(text, "i64")) return puts_number(decast(int), 1);
-
-            puts_static("<unknown:");
-            puts(text);
-            putchar('(');
-            puts_number(type, false);
-            puts_static(")[");
-            puts(value_text);
-            puts_static("]>");
-            puts_pointer(value);
-        });
-    }
-}
-
-const auto data  = 243;
-const auto array = 247;
 
 string *environ;
 
