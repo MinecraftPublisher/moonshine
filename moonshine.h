@@ -1,53 +1,92 @@
+#ifndef moonshine_header
+#define moonshine_header
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
 
-#ifndef moonshine_header
-    #define moonshine_header
-
 //
 
-    #include "moonshine.m4.h"
+#include "moonshine.m4.h"
 
-    #define new(a, ...)         ((a **) new_x(a __VA_OPT__(, ) __VA_ARGS__, new2, new1)(a __VA_OPT__(, ) __VA_ARGS__))
-    #define new_x(a, b, c, ...) c
-    #define new1(type)          (__new_array(#type, sizeof(type), 0))
-    #define new2(type, count)   (__new_array(#type, sizeof(type), count))
+// algebraic data type macros
 
-    #define fill(type, ...)                                                                                                    \
-        ({                                                                                                                     \
-            type __fill_values[] = { __VA_ARGS__ };                                                                            \
-            u4   __fill_count    = sizeof(__fill_values) / sizeof(type);                                                       \
-            auto __fill_arr      = new (type, __fill_count);                                                                   \
-            for (u4 __i = 0; __i < __fill_count; __i++) { de(__fill_arr)[ __i ] = __fill_values[ __i ]; }                      \
-            __fill_arr;                                                                                                        \
-        })
+#define expand(...)                         __VA_ARGS__
+#define tail(x, ...)                        __VA_ARGS__
+#define head(x, ...)                        x
+#define second(a, b, ...)                   b
+#define algebra_format(extra, time, x, ...) cat3(extra, _, time) cat4(object_, extra, _, time);
+#define algebra_enum(extra, time, x)        cat(head x, _type),
+#define algebra_argument(extra, time, body)                                                                                    \
+    struct head body { EXPAND_general(algebra_format, cat(type_, head body), tail body) } head body;
+#define algebra_type_size_inner(extra, time, ...) typedef __VA_ARGS__ cat3(type_, extra, time);
+#define algebra_type_size(extra, time, ...)       EXPAND_general(algebra_type_size_inner, cat(head __VA_ARGS__, _), tail __VA_ARGS__)
+#define datatype(node_name, body)                                                                                              \
+    typedef struct node_name node_name;                                                                                        \
+    EXPAND_general2(algebra_type_size, node_name, expand body) struct node_name {                                              \
+        enum cat(node_name, _type) { EXPAND_general2(algebra_enum, node_name, expand body) } type;                             \
+        union {                                                                                                                \
+            EXPAND_general2(algebra_argument, node_name, expand body)                                                          \
+        } data;                                                                                                                \
+    };
+#define instance(__type, kind, ...) ((struct __type) { .type = cat(kind, _type), .data.kind = { __VA_ARGS__ } })
 
-    #define single(...)                                                                                                        \
-        ({                                                                                                                     \
-            auto value = __VA_ARGS__;                                                                                          \
-            fill(typeof(value), value);                                                                                        \
-        })
+#define scope(name, ...)                                                                                                       \
+    for (auto name __attribute__((unused)) = __VA_ARGS__, datatype_break = (typeof(name)) 0;                                   \
+         datatype_break == (typeof(name)) 0;                                                                                   \
+         datatype_break = (typeof(name)) 1)
+
+#define match(value)                          scope(parent_value, &value) switch (parent_value->type)
+#define algebra_field_sum(extra, time, field) +sizeof(cat(extra, field))
+#define algebra_of_field(extra, time, field) scope(field, ({ parent_value->data.extra.cat4(object_type_, extra, _, time); }))
+#define of(type, ...)                                                                                                          \
+    break;                                                                                                                     \
+    case cat(type, _type): EXPAND_general(algebra_of_field, type, __VA_ARGS__)
+#define other()                                                                                                                \
+    break;                                                                                                                     \
+    default:
+
+// array macros
+
+#define new(a, ...)         ((a **) new_x(a __VA_OPT__(, ) __VA_ARGS__, new2, new1)(a __VA_OPT__(, ) __VA_ARGS__))
+#define new_x(a, b, c, ...) c
+#define new1(type)          (__new_array(#type, sizeof(type), 0))
+#define new2(type, count)   (__new_array(#type, sizeof(type), count))
+
+#define fill(type, ...)                                                                                                        \
+    ({                                                                                                                         \
+        type __fill_values[] = { __VA_ARGS__ };                                                                                \
+        u4   __fill_count    = sizeof(__fill_values) / sizeof(type);                                                           \
+        auto __fill_arr      = new (type, __fill_count);                                                                       \
+        for (u4 __i = 0; __i < __fill_count; __i++) { de(__fill_arr)[ __i ] = __fill_values[ __i ]; }                          \
+        __fill_arr;                                                                                                            \
+    })
+
+#define single(...)                                                                                                            \
+    ({                                                                                                                         \
+        auto value = __VA_ARGS__;                                                                                              \
+        fill(typeof(value), value);                                                                                            \
+    })
 
 int errno = 0;
 
-    #define likely(x)   __builtin_expect(!!(x), 1)
-    #define unlikely(x) __builtin_expect(!!(x), 0)
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 
-    #define NULL ((void *) 0)
+#define NULL ((void *) 0)
 
-    #if defined __x86_64__ && !defined __ILP32__
-        #define __WORDSIZE 64
-    #else
-        #define __WORDSIZE                32
-        #define __WORDSIZE32_SIZE_ULONG   0
-        #define __WORDSIZE32_PTediFF_LONG 0
-    #endif
+#if defined __x86_64__ && !defined __ILP32__
+    #define __WORDSIZE 64
+#else
+    #define __WORDSIZE                32
+    #define __WORDSIZE32_SIZE_ULONG   0
+    #define __WORDSIZE32_PTediFF_LONG 0
+#endif
 
-    #define __WORDSIZE_TIME64_COMPAT32 1
+#define __WORDSIZE_TIME64_COMPAT32 1
 
-    #ifdef __x86_64__
-        #define __syscall_WORDSIZE 64
-    #endif
+#ifdef __x86_64__
+    #define __syscall_WORDSIZE 64
+#endif
 
 typedef signed char        int8_t;
 typedef unsigned char      uint8_t;
@@ -55,13 +94,13 @@ typedef signed short int   int16_t;
 typedef unsigned short int uint16_t;
 typedef signed int         int32_t;
 typedef unsigned int       uint32_t;
-    #if __WORDSIZE == 64
+#if __WORDSIZE == 64
 typedef signed long int   int64_t;
 typedef unsigned long int uint64_t;
-    #else
+#else
 __extension__ typedef signed long long int   int64_t;
 __extension__ typedef unsigned long long int uint64_t;
-    #endif
+#endif
 
 typedef unsigned char byte;
 typedef char         *string;
@@ -78,7 +117,7 @@ typedef uint8_t bool;
 const bool true  = 1;
 const bool false = 0;
 
-    #define auto __auto_type
+#define auto __auto_type
 
 enum glob_type {
     type_char,
@@ -102,131 +141,124 @@ enum glob_type {
 
 void globprint(const enum glob_type type, const char *value_text, const char *text, const void *value);
 
-    #define print_local(value)                                                                                                 \
-        ({                                                                                                                     \
-            __auto_type obj = value;                                                                                           \
-            _Generic(                                                                                                          \
-                obj,                                                                                                           \
-                char: globprint(type_char, "", "char", &obj),                                                                  \
-                int: globprint(type_int, #value, "int", &obj),                                                                 \
-                string: globprint(type_string, "", "string", &obj),                                                            \
-                bool: globprint(type_bool, "", "bool", &obj),                                                                  \
-                u4: globprint(type_u32, "", "u32", &obj),                                                                      \
-                float: globprint(type_float, "", "float", &obj),                                                               \
-                double: globprint(type_double, "", "double", &obj),                                                            \
-                u8: globprint(type_u64, "", "u64", &obj),                                                                      \
-                i8: globprint(type_i64, "", "i64", &obj),                                                                      \
-                var: globprint(type_pointer, "", "pointer", &obj),                                                             \
-                default: globprint(type_unknown, #value, "unknown", &obj));                                                    \
-        })
+#define print_local(extra, time, value)                                                                                        \
+    ({                                                                                                                         \
+        __auto_type obj = value;                                                                                               \
+        _Generic(                                                                                                              \
+            obj,                                                                                                               \
+            char: globprint(type_char, "", "char", &obj),                                                                      \
+            int: globprint(type_int, #value, "int", &obj),                                                                     \
+            string: globprint(type_string, "", "string", &obj),                                                                \
+            bool: globprint(type_bool, "", "bool", &obj),                                                                      \
+            u4: globprint(type_u32, "", "u32", &obj),                                                                          \
+            float: globprint(type_float, "", "float", &obj),                                                                   \
+            double: globprint(type_double, "", "double", &obj),                                                                \
+            u8: globprint(type_u64, "", "u64", &obj),                                                                          \
+            i8: globprint(type_i64, "", "i64", &obj),                                                                          \
+            var: globprint(type_pointer, "", "pointer", &obj),                                                                 \
+            default: globprint(type_unknown, #value, "unknown", &obj));                                                        \
+    });
 
-    #define print(...)                                                                                                         \
-        ({                                                                                                                     \
-            EXPAND_print_local(__VA_ARGS__);                                                                                   \
-            putchar('\n');                                                                                                     \
-        })
+#define print(...)                                                                                                             \
+    ({                                                                                                                         \
+        EXPAND_general(print_local, "broken print", __VA_ARGS__);                                                              \
+        putchar('\n');                                                                                                         \
+    })
 
-    #define item(value, code)                                                                                                  \
-        case value: {                                                                                                          \
+#define switch_item(value, code)                                                                                               \
+    case value: {                                                                                                              \
+        code;                                                                                                                  \
+    }; break
+#define switch_none(code)                                                                                                      \
+    default: {                                                                                                                 \
+        code;                                                                                                                  \
+    } break
+
+#define decast(type) (*((type *) value))
+
+#define puts(value)        write(value, strlen(value), stdout)
+#define puts_static(value) write(value, sizeof(value), stdout)
+
+#define __demon(code, ID)                                                                                                      \
+    ({                                                                                                                         \
+        flush(stdout);                                                                                                         \
+        auto cat(fork_, ID) = fork();                                                                                          \
+        if (cat(fork_, ID) < 0) {                                                                                              \
+            puts_static("Failed to fork!\n");                                                                                  \
+            exit(1);                                                                                                           \
+        } else if (cat(fork_, ID) == 0) {                                                                                      \
             code;                                                                                                              \
-        }; break
-    #define none(code)                                                                                                         \
-        default: {                                                                                                             \
-            code;                                                                                                              \
-        } break
+            exit(0);                                                                                                           \
+            byte *osjdoijsoij = (byte *) (0 + 129387 - 129387);                                                                \
+            (void) *osjdoijsoij;                                                                                               \
+        };                                                                                                                     \
+        cat(fork_, ID);                                                                                                        \
+    })
+#define demon(code) __demon(code, expand(__COUNTER__))
 
-    #define decast(type) (*((type *) value))
+#define syscall1(num)                                                                                                          \
+    ({                                                                                                                         \
+        long result;                                                                                                           \
+        __asm__ volatile("syscall" : "=a"(result) : "a"(num) : "rcx", "r11", "memory", "cc");                                  \
+        result;                                                                                                                \
+    })
 
-    #define puts(value)        write(value, strlen(value), stdout)
-    #define puts_static(value) write(value, sizeof(value), stdout)
+#define syscall2(num, arg1)                                                                                                    \
+    ({                                                                                                                         \
+        long result;                                                                                                           \
+        __asm__ volatile("syscall" : "=a"(result) : "a"(num), "D"(arg1) : "rcx", "r11", "memory", "cc");                       \
+        result;                                                                                                                \
+    })
 
-    #define expand(x) x
-    #define __demon(code, ID)                                                                                                  \
-        ({                                                                                                                     \
-            flush(stdout);                                                                                                     \
-            auto cat(fork_, ID) = fork();                                                                                      \
-            if (cat(fork_, ID) < 0) {                                                                                          \
-                puts_static("Failed to fork!\n");                                                                              \
-                exit(1);                                                                                                       \
-            } else if (cat(fork_, ID) == 0) {                                                                                  \
-                code;                                                                                                          \
-                exit(0);                                                                                                       \
-                byte *osjdoijsoij = (byte *) (0 + 129387 - 129387);                                                            \
-                (void) *osjdoijsoij;                                                                                           \
-            };                                                                                                                 \
-            cat(fork_, ID);                                                                                                    \
-        })
-    #define demon(code)    /* Fork the current process and creates an async process that runs                                  \
-                              in parallel, it also returns the PID of the child process to the                                 \
-                              parent, in case you need to wait until the child dies. */                                        \
-        __demon(code, expand(__COUNTER__))
+#define syscall3(num, arg1, arg2)                                                                                              \
+    ({                                                                                                                         \
+        long result;                                                                                                           \
+        __asm__ volatile("syscall" : "=a"(result) : "a"(num), "D"(arg1), "S"(arg2) : "rcx", "r11", "memory", "cc");            \
+        result;                                                                                                                \
+    })
 
-    #define syscall1(num)                                                                                                      \
-        ({                                                                                                                     \
-            long result;                                                                                                       \
-            __asm__ volatile("syscall" : "=a"(result) : "a"(num) : "rcx", "r11", "memory", "cc");                              \
-            result;                                                                                                            \
-        })
+#define syscall4(num, arg1, arg2, arg3)                                                                                        \
+    ({                                                                                                                         \
+        long result;                                                                                                           \
+        __asm__ volatile("syscall" : "=a"(result) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3) : "rcx", "r11", "memory", "cc"); \
+        result;                                                                                                                \
+    })
 
-    #define syscall2(num, arg1)                                                                                                \
-        ({                                                                                                                     \
-            long result;                                                                                                       \
-            __asm__ volatile("syscall" : "=a"(result) : "a"(num), "D"(arg1) : "rcx", "r11", "memory", "cc");                   \
-            result;                                                                                                            \
-        })
+#define syscall5(num, arg1, arg2, arg3, arg4)                                                                                  \
+    ({                                                                                                                         \
+        long          result;                                                                                                  \
+        register long __arg4 __asm__("r10") = (long) (arg4);                                                                   \
+        __asm__ volatile("syscall"                                                                                             \
+                         : "=a"(result)                                                                                        \
+                         : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4)                                              \
+                         : "rcx", "r11", "memory", "cc");                                                                      \
+        result;                                                                                                                \
+    })
 
-    #define syscall3(num, arg1, arg2)                                                                                          \
-        ({                                                                                                                     \
-            long result;                                                                                                       \
-            __asm__ volatile("syscall" : "=a"(result) : "a"(num), "D"(arg1), "S"(arg2) : "rcx", "r11", "memory", "cc");        \
-            result;                                                                                                            \
-        })
+#define syscall6(num, arg1, arg2, arg3, arg4, arg5)                                                                            \
+    ({                                                                                                                         \
+        long          result;                                                                                                  \
+        register long __arg4 __asm__("r10") = (long) (arg4);                                                                   \
+        register long __arg5 __asm__("r8")  = (long) (arg5);                                                                   \
+        __asm__ volatile("syscall"                                                                                             \
+                         : "=a"(result)                                                                                        \
+                         : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4), "r"(__arg5)                                 \
+                         : "rcx", "r11", "memory", "cc");                                                                      \
+        result;                                                                                                                \
+    })
 
-    #define syscall4(num, arg1, arg2, arg3)                                                                                    \
-        ({                                                                                                                     \
-            long result;                                                                                                       \
-            __asm__ volatile("syscall"                                                                                         \
-                             : "=a"(result)                                                                                    \
-                             : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3)                                                       \
-                             : "rcx", "r11", "memory", "cc");                                                                  \
-            result;                                                                                                            \
-        })
-
-    #define syscall5(num, arg1, arg2, arg3, arg4)                                                                              \
-        ({                                                                                                                     \
-            long          result;                                                                                              \
-            register long __arg4 __asm__("r10") = (long) (arg4);                                                               \
-            __asm__ volatile("syscall"                                                                                         \
-                             : "=a"(result)                                                                                    \
-                             : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4)                                          \
-                             : "rcx", "r11", "memory", "cc");                                                                  \
-            result;                                                                                                            \
-        })
-
-    #define syscall6(num, arg1, arg2, arg3, arg4, arg5)                                                                        \
-        ({                                                                                                                     \
-            long          result;                                                                                              \
-            register long __arg4 __asm__("r10") = (long) (arg4);                                                               \
-            register long __arg5 __asm__("r8")  = (long) (arg5);                                                               \
-            __asm__ volatile("syscall"                                                                                         \
-                             : "=a"(result)                                                                                    \
-                             : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4), "r"(__arg5)                             \
-                             : "rcx", "r11", "memory", "cc");                                                                  \
-            result;                                                                                                            \
-        })
-
-    #define syscall7(num, arg1, arg2, arg3, arg4, arg5, arg6)                                                                  \
-        ({                                                                                                                     \
-            long          result;                                                                                              \
-            register long __arg4 __asm__("r10") = (long) (arg4);                                                               \
-            register long __arg5 __asm__("r8")  = (long) (arg5);                                                               \
-            register long __arg6 __asm__("r9")  = (long) (arg6);                                                               \
-            __asm__ volatile("syscall"                                                                                         \
-                             : "=a"(result)                                                                                    \
-                             : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4), "r"(__arg5), "r"(__arg6)                \
-                             : "rcx", "r11", "memory", "cc");                                                                  \
-            result;                                                                                                            \
-        })
+#define syscall7(num, arg1, arg2, arg3, arg4, arg5, arg6)                                                                      \
+    ({                                                                                                                         \
+        long          result;                                                                                                  \
+        register long __arg4 __asm__("r10") = (long) (arg4);                                                                   \
+        register long __arg5 __asm__("r8")  = (long) (arg5);                                                                   \
+        register long __arg6 __asm__("r9")  = (long) (arg6);                                                                   \
+        __asm__ volatile("syscall"                                                                                             \
+                         : "=a"(result)                                                                                        \
+                         : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(__arg4), "r"(__arg5), "r"(__arg6)                    \
+                         : "rcx", "r11", "memory", "cc");                                                                      \
+        result;                                                                                                                \
+    })
 
 void exit(const int exit_code) {
     const uint64_t syscall_number = 60;
@@ -236,11 +268,11 @@ void exit(const int exit_code) {
     __builtin_unreachable();
 }
 
-    #define stdin  0 /* Standard input.  */
-    #define stdout 1 /* Standard output.  */
-    #define stderr 2 /* Standard error output.  */
+#define stdin  0
+#define stdout 1
+#define stderr 2
 
-    #define BUFFER_SIZE 4096
+#define BUFFER_SIZE 4096
 
 static char buffer[ BUFFER_SIZE ];
 static int  buffer_index = 0;
@@ -284,49 +316,48 @@ int flush(int fd) {
     return result;
 }
 
-    #define putchar(x)                                                                                                         \
-        ({                                                                                                                     \
-            byte y = x;                                                                                                        \
-            write((char *) &y, 1, stdout);                                                                                     \
-        })
+#define putchar(x)                                                                                                             \
+    ({                                                                                                                         \
+        byte y = x;                                                                                                            \
+        write((char *) &y, 1, stdout);                                                                                         \
+    })
 
-    #define SYS_read 0
+#define SYS_read 0
 
 char getchar() {
     char c;
     u8   result = syscall4(SYS_read, stdin, &c, 1);
 
-    // print("Wow ", (u8)c);
     if (c == 0) return -1;
     if (result <= 0) return -1;
 
     return c;
 }
 
-    #define __MOONSHINE_MALLOC_WARNINGS
-    #ifdef __MOONSHINE_MALLOC_WARNINGS
-        #define MOONSHINE_LEGACY_LIBC_WARNING                                                                                  \
-            "You are using moonshine, this library does not allow the use of legacy libc functions. Please use the "           \
-            "moonshine-provided alternative instead."
+#define __MOONSHINE_MALLOC_WARNINGS
+#ifdef __MOONSHINE_MALLOC_WARNINGS
+    #define MOONSHINE_LEGACY_LIBC_WARNING                                                                                      \
+        "You are using moonshine, this library does not allow the use of legacy libc functions. Please use the "               \
+        "moonshine-provided alternative instead."
 void malloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "alloc")));
 void realloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "remap")));
 void free() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "release")));
-    #endif
+#endif
 
-    #define MAP_SHARED    0x01 /* Share changes */
-    #define MAP_PRIVATE   0x02 /* Changes are private */
-    #define PROT_READ     0x1  /* page can be read */
-    #define PROT_WRITE    0x2  /* page can be written */
-    #define PROT_EXEC     0x4  /* page can be executed */
-    #define MAP_FIXED     0x10 /* Interpret addr exactly */
-    #define MAP_ANONYMOUS 0x20 /* don't use a file */
+#define MAP_SHARED    0x01
+#define MAP_PRIVATE   0x02
+#define PROT_READ     0x1
+#define PROT_WRITE    0x2
+#define PROT_EXEC     0x4
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
 
 __attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) byte strcmp(ctring left, ctring right) {
     while (*left && (*left == *right) && left++ && right++);
     return (byte) (*left) - (byte) (*right);
 }
 
-    #define eq(a, b) (strcmp(a, b) == 0)
+#define eq(a, b) (strcmp(a, b) == 0)
 
 u8 strnlen(ctring txt, u8 len) {
     u8 s = 0;
@@ -383,36 +414,36 @@ var __bare_alloc(const uint64_t size) [[clang::allocating]] {
     return __bare_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 }
 
-    #define SYS_getpid 39
-    #define SYS_kill   62
+#define SYS_getpid 39
+#define SYS_kill   62
 
-    #define SIGTRAP 5
-    #define SIGILL  4
+#define SIGTRAP 5
+#define SIGILL  4
 
-    #define getpid()       syscall1(SYS_getpid)
-    #define kill(pid, sig) syscall3(SYS_kill, pid, sig)
-    #define raise(sig)     kill(getpid(), sig)
+#define getpid()       syscall1(SYS_getpid)
+#define kill(pid, sig) syscall3(SYS_kill, pid, sig)
+#define raise(sig)     kill(getpid(), sig)
 
-    // TODO: Setting a breakpoint multiple times can fuck with the stdout buffer, somehow
-    #define breakpoint(str)                                                                                                    \
-        ({                                                                                                                     \
-            const string wowie = "" str;                                                                                       \
-            (void) wowie;                                                                                                      \
-            (void) raise(SIGTRAP);                                                                                             \
-        })
+// TODO: Setting a breakpoint multiple times can fuck with the stdout buffer, somehow
+#define breakpoint(str)                                                                                                        \
+    ({                                                                                                                         \
+        const string wowie = "" str;                                                                                           \
+        (void) wowie;                                                                                                          \
+        (void) raise(SIGTRAP);                                                                                                 \
+    })
 
-    #define fg_ansi(r, g, b) "\e[38;2;" #r ";" #g ";" #b "m"
-    #define bg_ansi(r, g, b) "\e[48;2;" #r ";" #g ";" #b "m"
-    #define no_ansi()        "\e[0m"
+#define fg_ansi(r, g, b) "\e[38;2;" #r ";" #g ";" #b "m"
+#define bg_ansi(r, g, b) "\e[48;2;" #r ";" #g ";" #b "m"
+#define no_ansi()        "\e[0m"
 
-    #define throw(...)                                                                                                         \
-        ({                                                                                                                     \
-            print(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                     \
-            puts_static(fg_ansi(235, 235, 50) "The following is an exception-related crash: " no_ansi());                      \
-            (void) raise(SIGILL);                                                                                              \
-            __builtin_unreachable();                                                                                           \
-            0;                                                                                                                 \
-        })
+#define throw(...)                                                                                                             \
+    ({                                                                                                                         \
+        print(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                         \
+        puts_static(fg_ansi(235, 235, 50) "The following is an exception-related crash: " no_ansi());                          \
+        (void) raise(SIGILL);                                                                                                  \
+        __builtin_unreachable();                                                                                               \
+        0;                                                                                                                     \
+    })
 
 var __bare_mremap(const var ptr, const uint64_t old, const uint64_t new) [[clang::allocating]] {
     const var new_ptr = __bare_alloc(new);
@@ -421,8 +452,8 @@ var __bare_mremap(const var ptr, const uint64_t old, const uint64_t new) [[clang
     return new_ptr;
 }
 
-    #define BASE_ARRAY_CAPACITY      32
-    #define BASE_PAGE_TABLE_CAPACITY 16
+#define BASE_ARRAY_CAPACITY      32
+#define BASE_PAGE_TABLE_CAPACITY 16
 
 struct AllocatedPointer {
     u8   size;
@@ -453,20 +484,20 @@ struct PageTable {
     struct Page *pages;
 };
 
-    #define AllocatedPointer(size, location)                                                                                   \
-        ((struct AllocatedPointer) { .size = (size), .location = (location), .allocated = true })
-    #define PageArray()                                                                                                        \
-        ((struct PageArray) { .capacity = BASE_ARRAY_CAPACITY,                                                                 \
-                              .data     = __bare_alloc(sizeof(struct AllocatedPointer) * BASE_ARRAY_CAPACITY) })
-    #define Page(page_size)                                                                                                    \
-        ((struct Page) { .dirty       = true,                                                                                  \
-                         .last_result = {},                                                                                    \
-                         .size        = page_size,                                                                             \
-                         .start       = __bare_alloc(sizeof(byte) * page_size),                                                \
-                         .pointers    = PageArray() })
+#define AllocatedPointer(size, location)                                                                                       \
+    ((struct AllocatedPointer) { .size = (size), .location = (location), .allocated = true })
+#define PageArray()                                                                                                            \
+    ((struct PageArray) { .capacity = BASE_ARRAY_CAPACITY,                                                                     \
+                          .data     = __bare_alloc(sizeof(struct AllocatedPointer) * BASE_ARRAY_CAPACITY) })
+#define Page(page_size)                                                                                                        \
+    ((struct Page) { .dirty       = true,                                                                                      \
+                     .last_result = {},                                                                                        \
+                     .size        = page_size,                                                                                 \
+                     .start       = __bare_alloc(sizeof(byte) * page_size),                                                    \
+                     .pointers    = PageArray() })
 
-    #define PageTable()                                                                                                        \
-        ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })
+#define PageTable()                                                                                                            \
+    ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })
 
 struct PageTable global_page_table;
 
@@ -509,7 +540,7 @@ static int compare_locations(const void *a, const void *b) {
     return 0;
 }
 
-    #define align_value(value) ((u8) ((((value) + 15) & ~15ULL)))
+#define align_value(value) ((u8) ((((value) + 15) & ~15ULL)))
 
 struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
     if (!page->dirty) return page->last_result;
@@ -546,7 +577,6 @@ struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
         uint64_t                 block_end   = block->location + block->size;
         uint64_t                 current_end = block_end > page->size ? page->size : block_end;
 
-        // Check gap before current block
         if (block->location > prev_end) {
             uint64_t gap_size = block->location - prev_end;
             if (gap_size > max_free.size) {
@@ -558,7 +588,6 @@ struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
         if (current_end > prev_end) { prev_end = current_end; }
     }
 
-    // Check gap after last block
     if (prev_end < page->size) {
         uint64_t gap_size = page->size - prev_end;
         if (gap_size > max_free.size) {
@@ -579,9 +608,8 @@ struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
     return max_free;
 }
 
-    #define max(a, b) ((a) > (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
-// remove empty pages
 void clean_pages() {
     for (u8 i = 0; i < global_page_table.size; i++) {
         auto page = &global_page_table.pages[ i ];
@@ -611,7 +639,6 @@ __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)
 
     const u8 len = align_value(_len);
 
-    // Find the biggest free spot
     i8               biggest_free_page = -1;
     struct FreeBlock max_biggest_free  = { 0, 0 };
 
@@ -699,8 +726,6 @@ struct FoundPointer find_pointer(const var addr) {
         const u8     location = (u8) addr - (u8) page->start;
 
         if (addr >= (var) page->start && location < page->size) {
-            // Address is in this page
-
             struct AllocatedPointer *best_ptr = NULL;
 
             for (u8 j = 0; j < page->pointers.size; j++) {
@@ -751,8 +776,8 @@ __attribute__((diagnose_as_builtin(__builtin_strlen, 1))) unsigned long strlen(c
     return len;
 }
 
-    #define t(type) type **
-    #define de(obj) (*(obj))
+#define t(type) type **
+#define de(obj) (*(obj))
 
 int fork() {
     const uint64_t syscall_number = 57;
@@ -790,8 +815,8 @@ bool mine(const ptr pointer) {
     return output;
 }
 
-    #define cast_index(arr, type, index) ((type *) arr)[ index ]
-    #define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
+#define cast_index(arr, type, index) ((type *) arr)[ index ]
+#define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
 
 const int   magic_number = 0xB00E;
 typedef int magic_type;
@@ -870,57 +895,55 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
     memcpy(&(((char *) array[ 0 ])[ element_count * element_size ]), ptr, ptr_size);
 }
 
-    // IMPROVE
-    #define safe_push(type, array, ptr, ...)                                                                                   \
-        ({                                                                                                                     \
-            type **_array = array;                                                                                             \
-            type _ptr     = ptr __VA_OPT__(, ) __VA_ARGS__;                                                                    \
-            unsafe_push((var *) _array, (var) & (_ptr), sizeof(type));                                                         \
-        })
-    #define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
-    #define address_item(__array, __index)                                                                                     \
-        ({                                                                                                                     \
-            const auto arr   = __array;                                                                                        \
-            const u8   index = __index;                                                                                        \
-            if (unlikely(index >= count(arr))) throw("Requested index address in array exceeds the size of the array!");       \
-            if (unlikely(index < 0)) throw("Cannot address negative offset in array!");                                        \
-            &(arr[ 0 ][ index ]);                                                                                              \
-        })
-    #define get(__array, __index)                                                                                              \
-        ({                                                                                                                     \
-            const auto main        = __array;                                                                                  \
-            const auto arr         = main[ 0 ];                                                                                \
-            const u8   __get_index = __index;                                                                                  \
-            if (unlikely(__get_index > count(main)))                                                                           \
-                throw("Requested index in array (", __get_index, ") exceeds the size of the array! (", count(main), ")");      \
-            if (unlikely(__get_index < 0)) throw("Cannot access negative offset in array!");                                   \
-            arr[ __get_index ];                                                                                                \
-        })
-    #define count(array)                                                                                                       \
-        ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
-    #define element_size(array)                                                                                                \
-        (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
-    #define last(array) get(array, count(array) - 1)
+// IMPROVE
+#define safe_push(type, array, ptr, ...)                                                                                       \
+    ({                                                                                                                         \
+        type **_array = array;                                                                                                 \
+        type _ptr     = ptr __VA_OPT__(, ) __VA_ARGS__;                                                                        \
+        unsafe_push((var *) _array, (var) & (_ptr), sizeof(type));                                                             \
+    })
+#define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
+#define address_item(__array, __index)                                                                                         \
+    ({                                                                                                                         \
+        const auto arr   = __array;                                                                                            \
+        const u8   index = __index;                                                                                            \
+        if (unlikely(index >= count(arr))) throw("Requested index address in array exceeds the size of the array!");           \
+        if (unlikely(index < 0)) throw("Cannot address negative offset in array!");                                            \
+        &(arr[ 0 ][ index ]);                                                                                                  \
+    })
+#define get(__array, __index)                                                                                                  \
+    ({                                                                                                                         \
+        const auto main        = __array;                                                                                      \
+        const auto arr         = main[ 0 ];                                                                                    \
+        const u8   __get_index = __index;                                                                                      \
+        if (unlikely(__get_index > count(main)))                                                                               \
+            throw("Requested index in array (", __get_index, ") exceeds the size of the array! (", count(main), ")");          \
+        if (unlikely(__get_index < 0)) throw("Cannot access negative offset in array!");                                       \
+        arr[ __get_index ];                                                                                                    \
+    })
+#define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
+#define element_size(array)                                                                                                    \
+    (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
+#define last(array) get(array, count(array) - 1)
 
-    #define in               ,
-    #define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
-    #define foreach_xp(a, b) a b
-    #define foreach_inner(item, array)                                                                                         \
-        u4 cat(item, _index) = 0;                                                                                              \
-        for (auto item = get(array, cat(item, _index)++); cat(item, _index) <= count(array);                                   \
-             item      = get(array, cat(item, _index)++))
+#define in               ,
+#define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
+#define foreach_xp(a, b) a b
+#define foreach_inner(item, array)                                                                                             \
+    u4 cat(item, _index) = 0;                                                                                                  \
+    for (auto item = get(array, cat(item, _index)++); cat(item, _index) <= count(array); item = get(array, cat(item, _index)++))
 
-    #define LIBC_WARNINGS_TEXT(name)                                                                                           \
-        "[[>>> The " name                                                                                                      \
-        " function is part of the moonshine revamp, which means it behaves a bit differently than the libc " name              \
-        ". If you acknowledge this fact and you've read on how this function behaves, you may disable the revamp warnings by " \
-        "defining the __MOONSHINE_LIBC_WARNINGS flag before including the moonshine library: #define "                         \
-        "__MOONSHINE_LIBC_WARNINGS "                                                                                           \
-        "<<<]]"
+#define LIBC_WARNINGS_TEXT(name)                                                                                               \
+    "[[>>> The " name                                                                                                          \
+    " function is part of the moonshine revamp, which means it behaves a bit differently than the libc " name                  \
+    ". If you acknowledge this fact and you've read on how this function behaves, you may disable the revamp warnings by "     \
+    "defining the __MOONSHINE_LIBC_WARNINGS flag before including the moonshine library: #define "                             \
+    "__MOONSHINE_LIBC_WARNINGS "                                                                                               \
+    "<<<]]"
 
-    #ifndef __MOONSHINE_LIBC_WARNINGS
+#ifndef __MOONSHINE_LIBC_WARNINGS
 __attribute__((deprecated(LIBC_WARNINGS_TEXT("strdup"))))
-    #endif
+#endif
 
 __attribute__((diagnose_as_builtin(__builtin_strdup, 1)))
 t(char) strdup(ctring str) {
@@ -952,7 +975,7 @@ var *__reverse_array(var *array) {
     return array;
 }
 
-    #define reverse_array(...) (typeof(__VA_ARGS__)) __reverse_array((var *) __VA_ARGS__)
+#define reverse_array(...) (typeof(__VA_ARGS__)) __reverse_array((var *) __VA_ARGS__)
 
 t(char) strndup(ctring str, u8 len) {
     const auto obj = new (char, len + 1);
@@ -1042,24 +1065,24 @@ __attribute__((flatten)) void puts_pointer(const void *ptr) {
 // Massive TODO
 void globprint(const enum glob_type type, const char *value_text, const char *text, const void *value) {
     switch (type) {
-        item(type_char, putchar(decast(char)));
-        item(type_int, {
+        switch_item(type_char, putchar(decast(char)));
+        switch_item(type_int, {
             if (value_text[ 0 ] == '\'') putchar(decast(char));
             else { puts_number(decast(int), 1); }
         });
-        item(type_long, puts_number(decast(long), 1));
-        item(type_long_long, puts_number(decast(long long), 1));
-        item(type_float, puts_float(decast(float)));
-        item(type_double, puts_float(decast(double)));
-        item(type_u64, puts_number(decast(u8), 0));
-        item(type_u32, puts_number(decast(u4), 0));
-        item(type_string, puts(decast(char *)));
-        item(type_bool, {
+        switch_item(type_long, puts_number(decast(long), 1));
+        switch_item(type_long_long, puts_number(decast(long long), 1));
+        switch_item(type_float, puts_float(decast(float)));
+        switch_item(type_double, puts_float(decast(double)));
+        switch_item(type_u64, puts_number(decast(u8), 0));
+        switch_item(type_u32, puts_number(decast(u4), 0));
+        switch_item(type_string, puts(decast(char *)));
+        switch_item(type_bool, {
             if (decast(bool)) puts_static("true");
             else
                 puts_static("false");
         });
-        item(type_pointer, {
+        switch_item(type_pointer, {
             puts_static("<pointer ");
             puts_pointer(decast(var));
             puts_static(" (");
@@ -1067,7 +1090,7 @@ void globprint(const enum glob_type type, const char *value_text, const char *te
             puts_static(")>");
         });
 
-        none({
+        switch_none({
             if (mine(decast(var))) {
                 if (mine(*decast(var *))) {
                     // handle array
@@ -1121,44 +1144,28 @@ string *environ;
     int exit_code;
 
     __asm__ __volatile__("mov %1, %%rdi      \n"
-                         "mov %2, %%rsi      \n"       // Move argv into rsi (2nd argument)
-                         "call main          \n"       // Call main(argc, argv)
-                         "mov %%eax, %0      \n"       // Store return value into exit_code
-                         : "=r"(exit_code)             // Output operand
-                         : "r"((long) argc), "r"(argv) // Input operands
+                         "mov %2, %%rsi      \n"
+                         "call main          \n"
+                         "mov %%eax, %0      \n"
+                         : "=r"(exit_code)
+                         : "r"((long) argc), "r"(argv)
                          : "rdi", "rsi", "rax", "memory");
 
     exit(exit_code);
 }
 
 __attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void) {
-    __asm__ volatile(
-        // rdi will get argc. The first quadword at rsp is argc.
-        "mov (%rsp), %rdi \n" // rdi = argc
-
-        // rsi will get argv, which is at rsp + 8.
-        "lea 8(%rsp), %rsi \n" // rsi = &argv[0]
-
-        // Compute envp pointer.
-        // We need to add 8*(argc + 1) to rsp.
-        // First, copy argc (which is in rdi) into rax.
-        "mov %rdi, %rax \n"         // rax = argc
-        "lea (,%rax,8), %rcx \n"    // rcx = argc * 8
-        "add $8, %rcx \n"           // rcx = 8*(argc + 1)
-        "lea (%rsp, %rcx), %rdx \n" // rdx = rsp + 8*(argc+1) -> envp pointer
-
-        // Now call __moonshine_start(argc, argv, envp).
-        "call __moonshine_start \n"
-
-        // If __moonshine_start returns, we exit.
-        // Exit syscall number 60; exit code 0.
-        "mov $60, %rax \n"  // syscall: exit
-        "xor %rdi, %rdi \n" // rdi = 0    (exit code 0)
-        "syscall \n"
-
-        // No return. Add an infinite loop as a safeguard.
-        "hlt \n" // halt the CPU if syscall fails
-    );
+    __asm__ volatile("mov (%rsp), %rdi \n"
+                     "lea 8(%rsp), %rsi \n"
+                     "mov %rdi, %rax \n"
+                     "lea (,%rax,8), %rcx \n"
+                     "add $8, %rcx \n"
+                     "lea (%rsp, %rcx), %rdx \n"
+                     "call __moonshine_start \n"
+                     "mov $60, %rax \n"
+                     "xor %rdi, %rdi \n"
+                     "syscall \n"
+                     "hlt \n");
 }
 
 // TODO: Check for errors
@@ -1166,26 +1173,26 @@ __attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void
 typedef long ssize_t;
 typedef long off_t;
 
-    #define SEEK_SET 0
-    #define SEEK_CUR 1
-    #define SEEK_END 2
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
 
-    #define O_RDONLY 0
-    #define O_WRONLY 1
-    #define O_RDWR   2
-    #define O_CREAT  64   /* (0100 octal) */
-    #define O_TRUNC  512  /* (01000 octal) */
-    #define O_APPEND 1024 /* (02000 octal) */
+#define O_RDONLY 0
+#define O_WRONLY 1
+#define O_RDWR   2
+#define O_CREAT  64
+#define O_TRUNC  512
+#define O_APPEND 1024
 
-    #define DEFAULT_PERMISSIONS 0666
+#define DEFAULT_PERMISSIONS 0666
 
-    #define AT_FDCWD (-100)
+#define AT_FDCWD (-100)
 
-    #define SYS_read   0
-    #define SYS_write  1
-    #define SYS_close  3
-    #define SYS_lseek  8
-    #define SYS_openat 257
+#define SYS_read   0
+#define SYS_write  1
+#define SYS_close  3
+#define SYS_lseek  8
+#define SYS_openat 257
 
 typedef struct FILE {
     int fd;

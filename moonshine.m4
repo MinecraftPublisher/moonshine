@@ -13,19 +13,38 @@ undefine([define])dnl
 
 #define p_cat(a, b) a##b
 #define cat(a, b) p_cat(a, b)
+#define cat3(a, b, c) cat(a, cat(b, c))
+#define cat4(a, b, c, d) cat(cat(a, b), cat(c, d))
 
-#define dump_or_continue_0(...) 
+#define dump_or_continue_0(...)
 #define dump_or_continue_01(...) __VA_ARGS__
 
-set([_expand], [#define EXPAND_$3_$2(x, ...) $3(x); cat(dump_or_continue_0, __VA_OPT__(1))(EXPAND_$3_$1(__VA_ARGS__))])dnl
-set([expand], [ifelse([$1], [1], [#define EXPAND_$2_$1(x, ...) $2(x)], [_expand(decr($1), $1, $2)])])dnl
+set([_expand], [#define EXPAND_$3_$2(func, extra, x, ...) func(extra, $4, x) cat(dump_or_continue_0, __VA_OPT__(1))(EXPAND_$3_$1(func, extra, __VA_ARGS__))])dnl
+set([expand], [ifelse([$1], [1], [#define EXPAND_$2_$1(func, extra, x, ...) func(extra, $3, x)], [_expand(decr($1), $1, $2, $3)])])dnl
 dnl
-set([build_expander], [ifelse([$1], [0], [], [expand($1, $2)
-build_expander(decr($1), $2)dnl
+set([build_expander], [ifelse([$1], [0], [], [expand($1, $2, $3)
+build_expander(decr($1), $2, incr($3))dnl
 ])])dnl
-set([define_expander], [#define EXPAND_$2(...) EXPAND_$2_$1(__VA_ARGS__)
-build_expander($1, $2)])dnl
+set([define_expander], [#define EXPAND_$2(func, extra, ...) EXPAND_$2_$1(func, extra, __VA_ARGS__)
+build_expander($1, $2, [1])])dnl
 dnl
-define_expander([512], [print_local])
+dnl
+set([build_array], [ifelse([$1], [0], [$2], [$2,\
+build_array(decr($1), incr($2))])])dnl
+set([define_array], [#define really_long_array \
+build_array(decr($1), 1)])dnl
+dnl
+dnl
+dnl
+dnl Normally, I only need two of these to work. But if you want to nest more, activate the rest! Make sure to run `make m4` when you change this file.
+define_expander([512], general)
+define_expander([512], general2)
+dnl Activate these if needed.
+dnl define_expander([512], general3)
+dnl define_expander([512], general4)
+dnl define_expander([512], general5)
+dnl define_expander([512], general6)
+dnl define_expander([512], general7)
+dnl define_expander([512], general8)
 
 #endif

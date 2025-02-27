@@ -20,9 +20,10 @@ Its current features are:
 - Revamped stdlib functions such as `char* strdup(const char* str) -> t(char) strdup(ctring str)`
 - Array manipulation using `reverse_array(array)` which returns the reversed array and also reverses it in-place.
 - Custom `_start` function that initializes moonshine functionality whilst still keeping the ease of use of the libc `main` function.
+- Algebraic data types using the `datatype` macro, eg. `datatype(binarytree, ((leaf, int), (node, binarytree *, int, binarytree *) ));`
+- Pattern matching using algebraic data types.
 
 The roadmap for moonshine is:
-- Adding Algebraic data types
 - Implementing Garbage collection
 - Achieving more libc compatibility
 - Moving common operations to macros for reduced code size and increased conciseness
