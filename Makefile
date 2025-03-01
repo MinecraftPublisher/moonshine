@@ -12,6 +12,11 @@ c:
 test:
 	./out.bin
 
+profile:
+	clang main.c -o out.bin.profile $(FLAGS) -O3
+	perf record ./out.bin.profile
+	perf report > ./out.profile.txt
+
 # useless. it don't work.
 # profile:
 # 	clang -D__MOONSHINE_PROFILER main.c -o out.bin.profile $(FLAGS) $(SIZE_FLAGS) -fprofile-generate

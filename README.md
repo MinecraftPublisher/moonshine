@@ -22,6 +22,8 @@ Its current features are:
 - Custom `_start` function that initializes moonshine functionality whilst still keeping the ease of use of the libc `main` function.
 - Algebraic data types using the `datatype` macro, eg. `datatype(binarytree, ((leaf, int), (node, binarytree *, int, binarytree *) ));`
 - Pattern matching using algebraic data types.
+- Performant linked list implementation
+- Hash table implementation with customizable performance options, such as disabling the hash, adding collision-prevention, etc.
 
 The roadmap for moonshine is:
 - Implementing Garbage collection

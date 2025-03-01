@@ -4,7 +4,6 @@
 #ifndef moonshine_header
 #define moonshine_header
 
-#pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
 
 //
@@ -574,6 +573,15 @@ __attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) byte strcmp(ctring 
     return (byte) (*left) - (byte) (*right);
 }
 
+__attribute__((diagnose_as_builtin(__builtin_strncmp, 1, 2, 3))) byte strncmp(ctring left, ctring right, u8 n) {
+    while (n && *left && (*left == *right)) {
+        left++;
+        right++;
+        n--;
+    }
+    return (n == 0) ? 0 : ((byte) (*left) - (byte) (*right));
+}
+
 #define eq(a, b) (strcmp(a, b) == 0)
 
 u8 strnlen(ctring txt, u8 len) {
@@ -689,7 +697,9 @@ struct PageTable {
                      .pointers    = PageArray() })
 
 #define PageTable()                                                                                                            \
-    ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })
+    ((struct PageTable) { 0,                                                                                                   \
+                          BASE_PAGE_TABLE_CAPACITY,                                                                            \
+                          __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })                                        \
 
 struct PageTable global_page_table;
 
@@ -821,18 +831,17 @@ void clean_pages() {
 
 // TODO: Place page pointer and pointer size behind the allocated pointer
 
-__attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var alloc(const u8 _len)
+__attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var alloc(const u8 len)
     [[clang::allocating]] {
     static int alloc_count = 0;
-    if (alloc_count++ == 16) {
+    if (unlikely(alloc_count++ == 1024)) {
         alloc_count = 0;
         clean_pages();
     }
 
-    const u8 len = align_value(_len);
-
     i8               biggest_free_page = -1;
     struct FreeBlock max_biggest_free  = { 0, 0 };
+    struct Page     *page;
 
     for (u8 i = 0; i < global_page_table.size; i++) {
         if (global_page_table.pages[ i ].start == NULL) continue;
@@ -843,8 +852,8 @@ __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)
         biggest_free_page = i;
     }
 
-    u8   place = biggest_free_page;
-    auto page  = &global_page_table.pages[ place ];
+    u8 place = biggest_free_page;
+    page     = &global_page_table.pages[ place ];
 
     if (max_biggest_free.size < len) {
         // add a page
@@ -1006,6 +1015,23 @@ flatten void unsafe_extend(
     *array_ref               = (var) array_place;
 }
 
+void extend(var *array, u8 count) [[clang::allocating]] {
+    const var main_wrap  = cast_ptr(*array, byte, -addon_size);
+    var       array_wrap = main_wrap;
+
+    if (cast_index(array_wrap, magic_type, 0) != magic_number) {
+        throw("Invalid array magic number: ", cast_index(array_wrap, magic_type, 0), ", expected ", magic_number);
+    }
+
+    array_wrap = cast_ptr(array_wrap, magic_type, 1);
+    array_wrap = cast_ptr(array_wrap, string, 1);
+
+    const u4 element_count = cast_index(array_wrap, u4, 1);
+    const u4 element_size  = cast_index(array_wrap, u4, 0);
+
+    unsafe_extend(array, array_wrap, main_wrap, element_count, element_size, count);
+}
+
 void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocating]] {
     const var main_wrap  = cast_ptr(*array, byte, -addon_size);
     var       array_wrap = main_wrap;
@@ -1065,14 +1091,15 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
 #define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
 #define element_size(array)                                                                                                    \
     (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
-#define last(array) get(array, count(array) - 1)
+#define last(array) ((array)[ 0 ][ count(array) ])
 
 #define in               ,
 #define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
 #define foreach_xp(a, b) a b
 #define foreach_inner(item, array)                                                                                             \
-    u4 cat(item, _index) = 0;                                                                                                  \
-    for (auto item = get(array, cat(item, _index)++); cat(item, _index) <= count(array); item = get(array, cat(item, _index)++))
+    scope(cat(item, _index), (var) 0) for (auto item = get(array, (u8) cat(item, _index));                                     \
+                                           (u8) cat(item, _index) < count(array);                                              \
+                                           item = get(array, (u8) ++cat(item, _index)))
 
 #define LIBC_WARNINGS_TEXT(name)                                                                                               \
     "[[>>> The " name                                                                                                          \
@@ -1086,16 +1113,16 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
 __attribute__((deprecated(LIBC_WARNINGS_TEXT("strdup"))))
 #endif
 
-// ctring strdup(ctring str) {
-//     const u8   len = strlen(str);
-//     string obj = alloc(len + 1);
+t(char) strdup(ctring str) {
+    const u8 len = strlen(str);
+    t(char) obj  = new (char, len + 1);
 
-//     for (u8 i = 0; i < len; i++) obj[ i ] = str[ i ];
+    for (u8 i = 0; i < len; i++) obj[ 0 ][ i ] = str[ i ];
 
-//     obj[ len ] = 0;
+    obj[ 0 ][ len ] = 0;
 
-//     return obj;
-// }
+    return obj;
+}
 
 var *__reverse_array(var *array) {
     const u4 element_size = element_size(array);
@@ -1131,47 +1158,72 @@ typedef struct linkednode linkednode;
 
 // A typical node in a linked list.
 struct linkednode {
+    bool        init;
     linkednode *back[ 2 ];  // Double-index back-refernece for the node
     linkednode *front[ 2 ]; // Double-index forward-feference for the node
     var         data;       // The data for the linked list node
 };
 
 typedef struct linkedlist {
-    u8          size; // The size of a linked list
-    linkednode *head; // The head pointer for the linked list
-    linkednode *tail; // The tail pointer for the linked list
+    u8          size;       // The size of a linked list
+    linkednode *head;       // The head pointer for the linked list
+    linkednode *tail;       // The tail pointer for the linked list
+    u8          pool_size;  // The size of the last memory pool.
+    t(t(linkednode)) pools; // Memory pool.
 } linkedlist;
 
 // Create an empty linked list.
 flatten linkedlist *create_linkedlist() {
-    linkedlist list     = { .size = 0, .head = NULL, .tail = NULL };
-    auto       list_ref = obj(linkedlist);
-    *list_ref           = list;
-    return list_ref;
+    linkedlist *list = obj(linkedlist);
+    list->size       = 0;
+    list->head       = NULL;
+    list->tail       = NULL;
+
+    list->pool_size = 1024;
+    list->pools     = new (t(linkednode));
+    push(list->pools, new (linkednode, list->pool_size));
+
+    return list;
 }
 
 // Push a value to the end of a linked list.
 void push_linkedlist(linkedlist *list, var value) {
-    linkednode node;
-    auto       node_ref = obj(linkednode);
-    node.data           = value;
+    // Get object reference from memory pool.
+    linkednode *node = obj(linkednode);
+
+    // foreach (pool in list->pools) {
+    //     if (!pool) continue;
+    //     foreach (candid in pool) {
+    //         if (candid.init) continue;
+    //         node = &pool[ 0 ][ (u8) candid_index ];
+    //         break;
+    //     }
+    // }
+
+    // if (node == NULL) {
+    //     t(linkednode) new_pool = new (linkednode, list->pool_size *= 2);
+
+    //     node = &last(new_pool);
+    //     push(list->pools, new_pool);
+    // }
+
+    node->init = true;
+    node->data = value;
 
     auto follower      = list->tail;
     auto past_follower = list->tail == NULL ? NULL : list->tail->back[ 0 ];
 
-    node.back[ 0 ]  = follower;
-    node.back[ 1 ]  = past_follower;
-    node.front[ 0 ] = node.front[ 1 ] = NULL;
+    node->back[ 0 ]  = follower;
+    node->back[ 1 ]  = past_follower;
+    node->front[ 0 ] = node->front[ 1 ] = NULL;
 
     if (follower) {
-        follower->front[ 0 ] = node_ref;
-        if (past_follower) past_follower->front[ 1 ] = node_ref;
+        follower->front[ 0 ] = node;
+        if (past_follower) past_follower->front[ 1 ] = node;
     }
 
-    list->tail = node_ref;
-    if (!list->head) list->head = node_ref;
-
-    *node_ref = node;
+    list->tail = node;
+    if (!list->head) list->head = node;
 }
 
 linkednode *index_to_ptr(linkedlist *list, u8 index) {
@@ -1231,26 +1283,26 @@ overload var pop_item(linkedlist *list, bool free, linkednode *item) {
     if (item == NULL) return NULL;
 
     if (list->tail == item) list->tail = item->back[ 0 ];
-    if (item->front[ 0 ]) {
-        item->front[ 0 ]->back[ 0 ] = item->front[ 0 ]->back[ 1 ];
-        item->front[ 0 ]->back[ 1 ] = item->back[ 0 ];
-        if (item->front[ 1 ]) item->front[ 1 ]->back[ 1 ] = item->front[ 0 ]->back[ 0 ];
+    else if (item->front[ 0 ]) {
+        item->front[ 0 ]->back[ 0 ] = item->back[ 0 ];
+        item->front[ 0 ]->back[ 1 ] = item->back[ 1 ];
+        if (item->front[ 1 ]) item->front[ 1 ]->back[ 1 ] = item->back[ 0 ];
     }
 
     if (list->head == item) list->head = item->front[ 0 ];
     else if (item->back[ 0 ]) {
-        item->back[ 0 ]->front[ 0 ] = item->back[ 0 ]->front[ 1 ];
-        item->back[ 0 ]->front[ 1 ] = item->front[ 0 ];
-        if (item->back[ 1 ]) item->back[ 1 ]->front[ 1 ] = item->back[ 0 ]->back[ 0 ];
+        item->back[ 0 ]->front[ 0 ] = item->front[ 0 ];
+        item->back[ 0 ]->front[ 1 ] = item->front[ 1 ];
+        if (item->back[ 1 ]) item->back[ 1 ]->front[ 1 ] = item->front[ 0 ];
     }
 
-    item->front[ 0 ] = item->front[ 1 ] = item->back[ 0 ] = item->back[ 1 ] = 0;
+    item->front[ 0 ] = item->front[ 1 ] = item->back[ 0 ] = item->back[ 1 ] = NULL;
 
     list->size--;
 
     auto ptr = item->data;
     if (free) {
-        release(item);
+        item->init = false;
         return ptr;
     } else {
         return item;
@@ -1261,19 +1313,353 @@ overload var pop_item(linkedlist *list, bool free, linkednode *item) {
 // true.
 line var pop_item(linkedlist *list, bool free, u8 index) { return pop_item(list, free, index_to_ptr(list, index)); }
 
+// This function removes a node from the linked list, and then places it at the start of the list.
 overload void front_insert(linkedlist *list, linkednode *node) {
     pop_item(list, false, node);
     if (list->head) {
-        node->front[ 0 ]                  = list->head;
-        node->front[ 1 ]                  = list->head->front[ 0 ];
-        list->head->back[ 0 ]             = node;
-        list->head->front[ 0 ]->back[ 1 ] = node;
+        node->front[ 0 ]      = list->head;
+        node->front[ 1 ]      = list->head->front[ 0 ];
+        list->head->back[ 0 ] = node;
+        if (list->head->front[ 0 ]) list->head->front[ 0 ]->back[ 1 ] = node;
     }
     if (list->head == list->tail) list->tail = node;
     list->head = node;
 }
 
+// This function removes a node from the linked list, and then places it at the start of the list.
 line void front_insert(linkedlist *list, u8 index) { return front_insert(list, index_to_ptr(list, index)); }
+
+typedef u8 (*hash_function)(ctring);
+
+u8 table_hash_1(ctring str) {
+    u8   hash = 5381;
+    char c;
+
+    while ((c = *str++)) hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash;
+}
+
+// jenkins one-at-a-time hash
+u8 table_hash_2(ctring key) {
+    u8 hash, i;
+    for (hash = i = 0; i < strlen(key); ++i) {
+        hash += key[ i ];
+        hash += (hash << 10);
+        hash ^= (hash >> 6);
+    }
+    hash += (hash << 3);
+    hash ^= (hash >> 11);
+    hash += (hash << 15);
+    return hash;
+}
+
+// murmurhash3 implementatin for 64-bit output
+u8 table_hash_3(ctring data) {
+    const u8  seed    = 0;
+    u8        h1      = seed;
+    const u8  len     = strlen(data);
+    const u8  nblocks = len / 8;
+    const u8  c1      = 0xff51afd7ed558ccdULL;
+    const u8  c2      = 0xc4ceb9fe1a85ec53ULL;
+    const u8 *blocks  = (const u8 *) (data);
+
+    for (size_t i = 0; i < nblocks; i++) {
+        u8 k1 = blocks[ i ];
+
+        k1 *= c1;
+        k1 = (k1 << 31) | (k1 >> 33);
+        k1 *= c2;
+
+        h1 ^= k1;
+        h1 = (h1 << 27) | (h1 >> 37);
+        h1 = h1 * 5 + 0x52dce729;
+    }
+
+    ctring tail = (data + nblocks * 8);
+    u8     k1   = 0;
+
+    switch (len & 7) {
+        case 7: k1 ^= ((u8) tail[ 6 ]) << 48;
+        case 6: k1 ^= ((u8) tail[ 5 ]) << 40;
+        case 5: k1 ^= ((u8) tail[ 4 ]) << 32;
+        case 4: k1 ^= ((u8) tail[ 3 ]) << 24;
+        case 3: k1 ^= ((u8) tail[ 2 ]) << 16;
+        case 2: k1 ^= ((u8) tail[ 1 ]) << 8;
+        case 1:
+            k1 ^= ((u8) tail[ 0 ]);
+            k1 *= c1;
+            k1 = (k1 << 31) | (k1 >> 33);
+            k1 *= c2;
+            h1 ^= k1;
+    }
+
+    h1 ^= len;
+    h1 ^= h1 >> 33;
+    h1 *= c1;
+    h1 ^= h1 >> 33;
+    h1 *= c2;
+    h1 ^= h1 >> 33;
+
+    return h1;
+}
+
+typedef struct hashnode {
+    u8     hash;
+    ctring key;
+    car    value;
+} hashnode;
+
+typedef struct hashtable {
+    hash_function proto;
+    bool          use_hash;
+    u8            size;
+    int8_t        current_recent_access;
+    struct hashtable_optimizations {
+        bool only_recent_collision_checks; // Fast-ish option? Only checks the recent access table for collisions.
+        bool no_collision_checks;          // Fastest option. Disables collision checking altogether.
+        bool run_ptr_check; // Faster option. Checks hash equivalency and pointer equivalency. Reduces rate of collisions if
+                            // the string pointers used for fetching entries remain persistent. Setting this option to true
+                            // will disable collision checks.
+        byte collision_character_check_count; // Fast option. Check the first N characters of the inputs together, alongside the
+                                              // hash. Setting this option to a non-zero value will disable collision checks.
+        bool no_hash; // Slowest option. Always use strcmp to find entries. Does not bother hashing values or checking for
+                      // collisions.
+    } optimizations;
+    struct recent_access {
+        u8     hash;
+        ctring key;
+        car    value;
+    } recent_access_nodes[ 16 ]; // Recently accessed table entries.
+    linkedlist *entries;         // Linked list of hashnode structs.
+} hashtable;
+
+// TODO: Add a rehash function that allows the user to change the hash function, recompute all the hashes and detect collisions.
+
+//
+hashtable *create_table(hash_function proto) {
+    hashtable  node     = { .use_hash              = true,
+                            .size                  = 0,
+                            .proto                 = proto,
+                            .entries               = create_linkedlist(),
+                            .current_recent_access = -1,
+                            .recent_access_nodes   = { [0] = { 0, 0, 0 }, [15] = { 0, 0, 0 } },
+                            .optimizations         = { // Default optimization options. Check for collisions.
+                                                       .only_recent_collision_checks    = false,
+                                                       .no_hash                         = false,
+                                                       .run_ptr_check                   = false,
+                                                       .collision_character_check_count = 0,
+                                                       .no_collision_checks             = false } };
+    hashtable *node_ref = obj(hashtable);
+    *node_ref           = node;
+
+    return node_ref;
+}
+
+overload hashtable *create_table(hash_function proto, struct hashtable_optimizations optimizations) {
+    auto table           = create_table(proto);
+    table->optimizations = optimizations;
+    return table;
+}
+
+flatten void add_recent_access(hashtable *table, hashnode node) {
+    auto ref = &table->recent_access_nodes[ table->current_recent_access = (table->current_recent_access + 1) % 16 ];
+    if (!table->optimizations.no_hash) ref->hash = node.hash;
+    ref->key   = node.key;
+    ref->value = node.value;
+}
+
+// TODO: Improve performance
+
+// Sets a value in the hashtable.
+void set_hashtable(hashtable *table, ctring key, car value) {
+    hashnode *node = obj(hashnode);
+    node->hash     = table->proto(key);
+    node->key      = key;
+    node->value    = value;
+
+    // skip collision detection if optimizations are enabled
+    if (table->optimizations.no_hash || table->optimizations.no_collision_checks
+        || table->optimizations.collision_character_check_count > 0)
+        goto FINISH;
+
+    // maybe there's a better option than checking for collisions all the time?
+
+    table->use_hash = true;
+
+    if (table->optimizations.no_collision_checks) goto FINISH;
+
+    // check for collisions in the recent access
+    for (u8 i = 0; i < 16; i++) {
+        if (table->recent_access_nodes[ i ].hash == 0 && table->recent_access_nodes[ i ].key == NULL) continue;
+        if (table->recent_access_nodes[ i ].hash != node->hash) continue;
+        // collision detected, disable usage of hashes
+        table->use_hash = false;
+        goto FINISH;
+    }
+
+    if (table->optimizations.only_recent_collision_checks) goto FINISH;
+
+    // check for collisions in the hash table, maybe slow?
+    // improve the speed on this!!
+    auto c_head = table->entries->head;
+    auto c_tail = table->entries->tail;
+    for (; c_head != NULL || c_tail != NULL;) {
+        if (c_head) {
+            auto head = (hashnode *) c_head->data;
+            if (head->hash == node->hash) { // collision detected on head.
+                table->use_hash = false;
+                goto FINISH;
+            }
+        }
+
+        if (c_tail) {
+            auto tail = (hashnode *) c_tail->data;
+            if (tail->hash == node->hash) { // collision detected on tail.
+                table->use_hash = false;
+                goto FINISH;
+            }
+        }
+
+        if (c_head) c_head = c_head->front[ 0 ];
+        if (c_tail) c_tail = c_tail->back[ 0 ];
+    }
+
+FINISH:
+    push_linkedlist(table->entries, node);
+    // add_recent_access(table, *node);
+}
+
+overload car get_hashtable(hashtable *table, u8 hash, ctring key);
+
+// Gets a value from the hashtable using just a key. This approach is not very performant if hashing has been disabled.
+overload car get_hashtable(hashtable *table, ctring key) {
+    if (table->use_hash && !table->optimizations.no_hash) return get_hashtable(table, table->proto(key), key);
+
+    for (byte i = 0; i < 16; i++) {
+        if (table->recent_access_nodes[ i ].hash == 0 && table->recent_access_nodes[ i ].key == NULL) continue;
+        if (table->recent_access_nodes[ i ].key == key) return table->recent_access_nodes[ i ].value;
+        if (eq(table->recent_access_nodes[ i ].key, key)) return table->recent_access_nodes[ i ].value;
+    }
+
+    auto c_head = table->entries->head;
+    auto c_tail = table->entries->tail;
+
+    for (; c_head != NULL || c_tail != NULL;) {
+        if (c_head) {
+            hashnode *head = c_head->data;
+            if (head->key != key) goto LAST;
+            if (!eq(head->key, key)) goto LAST;
+            add_recent_access(table, *(hashnode *) head);
+            return head->value;
+        }
+
+        if (c_tail) {
+            hashnode *tail = c_tail->data;
+            if (tail->key != key) goto LAST;
+            if (!eq(tail->key, key)) goto LAST;
+            add_recent_access(table, *(hashnode *) tail);
+            return tail->value;
+        }
+
+    LAST:
+
+        if (c_head) c_head = c_head->front[ 0 ];
+        if (c_tail) c_tail = c_tail->back[ 0 ];
+    }
+
+    return NULL;
+}
+
+// Gets a value from the hashtable using a key and a hash. The key is not typically used unless optimization checks are enabled.
+overload car get_hashtable(hashtable *table, u8 hash, ctring key) {
+    if (!table->use_hash || table->optimizations.no_hash) return get_hashtable(table, key);
+
+    bool        matched        = false;
+    linkednode *best_candidate = NULL;
+
+    for (byte i = 0; i < 16; i++) {
+        auto node = table->recent_access_nodes[ i ];
+        if (node.hash == 0 && node.key == NULL) continue;
+        if (node.hash != hash) continue;
+        // Hash matches.
+        if (table->optimizations.run_ptr_check && node.key == key) return node.value;
+        // Check key characters.
+        if (table->optimizations.collision_character_check_count
+            && strncmp(node.key, key, table->optimizations.collision_character_check_count) == 0)
+            return node.value;
+        // No hash matches. Set best candidate.
+        matched        = true;
+        best_candidate = (var) node.value;
+    }
+
+    // Best candidate here acts as a holder for the value, not an actual linkednode.
+    if (matched) return best_candidate;
+
+    // Use hash
+    auto c_head = table->entries->head;
+    auto c_tail = table->entries->tail;
+
+    for (; c_head != NULL || c_tail != NULL;) {
+        // Bug: Investigate why this happens.
+        if (likely(c_head) && unlikely(c_head == c_head->front[ 0 ])) c_head = NULL;
+        if (likely(c_tail) && unlikely(c_tail == c_tail->back[ 0 ])) c_tail = NULL;
+
+        if (c_head) {
+            hashnode *head = c_head->data;
+            if (!head) goto CONT1;
+            if (head->hash == hash) { // Check optimization flags.
+                // Hash matches and the pointer check succeeded. Return the candidate immediately.
+                if (table->optimizations.run_ptr_check && head->key == key) {
+                    add_recent_access(table, *(hashnode *) head);
+                    return head->value;
+                } // Check key characters.
+                if (table->optimizations.collision_character_check_count
+                    && strncmp(head->key, key, table->optimizations.collision_character_check_count) == 0) {
+                    add_recent_access(table, *(hashnode *) head);
+                    return head->value;
+                }
+                // Hash matches? If so, set it as the best candidate.
+                best_candidate = c_head;
+                goto CONT1;
+            }
+        }
+
+    CONT1:
+
+        if (c_tail) {
+            hashnode *tail = c_tail->data;
+            if (!tail) goto CONT2;
+            if (tail->hash == hash) { // Check optimization flags.
+                // Hash matches and the pointer check succeeded. Return the candidate immediately.
+                if (table->optimizations.run_ptr_check && tail->key == key) {
+                    add_recent_access(table, *(hashnode *) tail);
+                    return tail->value;
+                }
+                // Check key characters.
+                if (table->optimizations.collision_character_check_count
+                    && strncmp(tail->key, key, table->optimizations.collision_character_check_count) == 0) {
+                    add_recent_access(table, *(hashnode *) tail);
+                    return tail->value;
+                }
+                // Hash matches? If so, set it as the best candidate.
+                best_candidate = c_tail;
+                goto CONT2;
+            }
+        }
+
+    CONT2:
+
+        if (c_head) c_head = c_head->front[ 0 ];
+        if (c_tail) c_tail = c_tail->back[ 0 ];
+    }
+
+    if (best_candidate) front_insert(table->entries, best_candidate);
+    else { return NULL; }
+    add_recent_access(table, *(hashnode *) best_candidate->data);
+
+    return ((hashnode *) best_candidate->data)->value;
+}
 
 string *environ;
 
