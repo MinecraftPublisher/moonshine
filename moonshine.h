@@ -126,33 +126,13 @@ const bool false = 0;
 
 #define auto __auto_type
 
-enum glob_type {
-    type_char,
-    type_int,
-    type_long,
-    type_long_long,
-    type_float,
-    type_double,
-    type_unsigned_char,
-    type_unsigned_int,
-    type_unsigned_long_long,
-    type_string,
-    type_bool,
-    type_pointer,
-    type_u32,
-    type_u64,
-    type_i64,
-    type_i32,
-    type_unknown
-};
-
-#define switch_item(value, code)                                                                                               \
+#define switch_item(value, ...)                                                                                                \
     case value: {                                                                                                              \
-        code;                                                                                                                  \
+        __VA_ARGS__;                                                                                                           \
     }; break
-#define switch_none(code)                                                                                                      \
+#define switch_none(...)                                                                                                       \
     default: {                                                                                                                 \
-        code;                                                                                                                  \
+        __VA_ARGS__;                                                                                                           \
     } break
 
 #define decast(type) (*((type *) value))
@@ -697,9 +677,7 @@ struct PageTable {
                      .pointers    = PageArray() })
 
 #define PageTable()                                                                                                            \
-    ((struct PageTable) { 0,                                                                                                   \
-                          BASE_PAGE_TABLE_CAPACITY,                                                                            \
-                          __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })                                        \
+    ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })
 
 struct PageTable global_page_table;
 
@@ -1062,7 +1040,10 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
     memcpy(&(((char *) array[ 0 ])[ element_count * element_size ]), ptr, ptr_size);
 }
 
-// IMPROVE
+#define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
+#define element_size(array)                                                                                                    \
+    (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
+#define last(array) ((array)[ 0 ][ count(array) ])
 #define safe_push(type, array, ptr, ...)                                                                                       \
     ({                                                                                                                         \
         type **_array = array;                                                                                                 \
@@ -1070,36 +1051,35 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
         unsafe_push((var *) _array, (var) & (_ptr), sizeof(type));                                                             \
     })
 #define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
-#define address_item(__array, __index)                                                                                         \
-    ({                                                                                                                         \
-        const auto arr   = __array;                                                                                            \
-        const u8   index = __index;                                                                                            \
-        if (unlikely(index >= count(arr))) throw("Requested index address in array exceeds the size of the array!");           \
-        if (unlikely(index < 0)) throw("Cannot address negative offset in array!");                                            \
-        &(arr[ 0 ][ index ]);                                                                                                  \
-    })
-#define get(__array, __index)                                                                                                  \
-    ({                                                                                                                         \
-        const auto main        = __array;                                                                                      \
-        const auto arr         = main[ 0 ];                                                                                    \
-        const u8   __get_index = __index;                                                                                      \
-        if (unlikely(__get_index > count(main)))                                                                               \
-            throw("Requested index in array (", __get_index, ") exceeds the size of the array! (", count(main), ")");          \
-        if (unlikely(__get_index < 0)) throw("Cannot access negative offset in array!");                                       \
-        arr[ __get_index ];                                                                                                    \
-    })
-#define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
-#define element_size(array)                                                                                                    \
-    (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
-#define last(array) ((array)[ 0 ][ count(array) ])
+
+var return_item(var **arr, u8 index) {
+    if (unlikely(index >= count(arr))) {
+        throw("Requested index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
+    }
+    if (unlikely(index < 0)) throw("Cannot access negative offset in array!");
+
+    return &arr[ 0 ][ index * element_size(arr) ];
+}
+
+void set_item(var **arr, u8 index, var value) {
+    if (unlikely(index >= count(arr))) {
+        throw("Target index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
+    }
+    if (unlikely(index < 0)) throw("Cannot write to negative offset in array!");
+
+    memcpy(&arr[ 0 ][ index * element_size(arr) ], value, element_size(arr));
+}
+
+#define address_item(__array, __index) (typeof(__array[0])) return_item((var **) __array, __index)
+#define get(__array, __index)          (*(typeof(__array[0])) return_item((var **) __array, __index))
+#define set(__array, __index, __value) ({ typeof(__array[0][0]) v = __value; set_item((var **) __array, __index, &v); })
 
 #define in               ,
 #define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
 #define foreach_xp(a, b) a b
 #define foreach_inner(item, array)                                                                                             \
-    scope(cat(item, _index), (var) 0) for (auto item = get(array, (u8) cat(item, _index));                                     \
-                                           (u8) cat(item, _index) < count(array);                                              \
-                                           item = get(array, (u8) ++cat(item, _index)))
+    scope(cat(item, _index), (var) 0) for (auto item = get(array, (u8) 0); (u8) cat(item, _index) < count(array);              \
+                                           item      = get(array, (u8) ++cat(item, _index)))
 
 #define LIBC_WARNINGS_TEXT(name)                                                                                               \
     "[[>>> The " name                                                                                                          \
@@ -1124,7 +1104,7 @@ t(char) strdup(ctring str) {
     return obj;
 }
 
-var *__reverse_array(var *array) {
+var **__reverse_array(var **array) {
     const u4 element_size = element_size(array);
     const u4 count_val    = count(array);
     if (count_val <= 1) return array;
