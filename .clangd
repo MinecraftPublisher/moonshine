@@ -1,5 +1,5 @@
 CompileFlags:
-    Add: [-xc, --analyze, -nostdlib, -nostdinc, -Wno-incompatible-library-redeclaration, -Wall, -Wextra]
+    Add: [-xc, -nostartfiles, -nostdlib, -nostdinc, -Wno-incompatible-library-redeclaration, -Wall, -Wextra]
     Remove: [-Wincompatible-library-redeclaration]
     Compiler: clang
 

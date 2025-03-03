@@ -2,7 +2,7 @@
 
 #include "moonshine.h"
 
-const enum { test_datatype, test_linkedlist, test_hashtable, test_alloc, test_array } current_test = test_array;
+const enum { test_datatype, test_linkedlist, test_hashtable, test_alloc, test_array, test_hashtable_2 } current_test = test_hashtable;
 
 int main() {
     if (current_test == test_alloc) {
@@ -14,26 +14,37 @@ int main() {
         *v1 = 2;
         *v2 = 99;
 
-        print(*v1, *v2);
+        println(*v1, *v2);
         release(v1);
 
-        print(*v2);
+        println(*v2);
     } else if (current_test == test_array) {
         auto arr = new (int);
         push(arr, 4);
         push(arr, 9);
+        push(arr, 3);
+        push(arr, 5);
         set(arr, 0, 2);
-        print(get(arr, 0));
+
+        println("Original");
+
+        foreach(i in arr) println("[", (u8)i_index, "] ", i);
+
+        println("Reversed");
+
+        reverse_array(arr);
+
+        foreach(i in arr) println("[", (u8)i_index, "] ", i);
     } else if (current_test == test_datatype) {
         datatype(binarytree, ((leaf, int), (node, binarytree *, int, binarytree *) ));
         const auto tree = instance(binarytree, leaf, 3);
 
-        print(&tree);
+        println(&tree);
 
         match(tree) {
-            of(leaf, v) print("Leafy ", v);
-            of(node, _, v, _) print("Nodey ", v);
-            other() print("Idk man");
+            of(leaf, v) println("Leafy ", v);
+            of(node, _, v, _) println("Nodey ", v);
+            other() println("Idk man");
         }
     } else if (current_test == test_linkedlist) {
         const auto ll = create_linkedlist();
@@ -42,20 +53,27 @@ int main() {
 
         print((u8) index_to_ptr(ll, 12)->data);
     } else if (current_test == test_hashtable) {
-        const auto ht = create_table(
-            table_hash_2, (struct hashtable_optimizations) { .run_ptr_check = true, .collision_character_check_count = 10 });
+        const auto ht = create_hasharray(
+            table_hash_2);
 
-        for (u8 i = 0; i < 10000; i++) {
-            if (i % 1000 == 0) print("I ", i);
-            set_hashtable(ht, "hello", "world");
-            set_hashtable(ht, "how", "are you");
+        for (u8 i = 0; i < 10000000; i++) {
+            if (i % 1000000 == 0) println("I ", i);
+            set_hasharray(ht, "hello", "world");
+            set_hasharray(ht, "how", "are you");
         }
 
-        print((string) get_hashtable(ht, "hello"), ' ', (string) get_hashtable(ht, "how"), ' ', get_hashtable(ht, "wowie"));
+        println((string) get_hasharray(ht, "hello"), ' ', (string) get_hasharray(ht, "how"), ' ', get_hasharray(ht, "wowie"));
+    } else if (current_test == test_hashtable_2) {
+        const auto ht = create_hasharray(table_hash_2);
+
+        set_hasharray(ht, "hello", "hi");
+        println("Value: ", (string)get_hasharray(ht, "hello"));
+        set_hasharray(ht, "hello", "meow");
+        println("Value after: ", (string)get_hasharray(ht, "hello"));
     }
 
     else {
-        print("Unknown test.");
+        throw("Unknown test.");
     }
 
     return 0;

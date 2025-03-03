@@ -37,8 +37,8 @@ dnl
 dnl
 dnl
 dnl Normally, I only need two of these to work. But if you want to nest more, activate the rest! Make sure to run `make m4` when you change this file.
-define_expander([512], general)
-define_expander([512], general2)
+define_expander([1024], general)
+define_expander([1024], general2)
 dnl Activate these if needed.
 dnl define_expander([512], general3)
 dnl define_expander([512], general4)

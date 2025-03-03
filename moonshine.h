@@ -10,12 +10,13 @@
 
 #include "moonshine.m4.h"
 
-#define overload __attribute__((overloadable))
-#define line     overload flatten
-#define unused   __attribute__((unused))
+#define fn_overload __attribute__((overloadable))
+#define fn_line     fn_overload flatten
+#define attr_unused __attribute__((unused))
 
 // algebraic data type macros
 
+#define exp(a, ...)                         a(__VA_ARGS__)
 #define expand(...)                         __VA_ARGS__
 #define tail(x, ...)                        __VA_ARGS__
 #define head(x, ...)                        x
@@ -37,7 +38,7 @@
     }
 #define instance(__type, kind, ...) ((struct __type) { .type = cat(kind, _type), .data.kind = { __VA_ARGS__ } })
 #define scope(name, ...)                                                                                                       \
-    _Pragma("unroll") for (auto name unused = __VA_ARGS__, datatype_break = (typeof(name)) 0;                                  \
+    _Pragma("unroll") for (auto name attr_unused = __VA_ARGS__, datatype_break = (typeof(name)) 0;                             \
                            datatype_break == (typeof(name)) 0;                                                                 \
                            datatype_break = (typeof(name)) 1)
 #define match(value)                          scope(parent_value, &value) switch (parent_value->type)
@@ -53,6 +54,13 @@
 // array macros
 
 #define obj(type) (type *) alloc(sizeof(type))
+#define clone(value)                                                                                                           \
+    ({                                                                                                                         \
+        auto _val = value;                                                                                                     \
+        auto _ptr = alloc(sizeof(_val));                                                                                       \
+        memcpy(_ptr, &_val, sizeof(_val));                                                                                     \
+        _ptr;                                                                                                                  \
+    })
 
 #define new(a, ...)         ((a **) new_x(a __VA_OPT__(, ) __VA_ARGS__, new2, new1)(a __VA_OPT__(, ) __VA_ARGS__))
 #define new_x(a, b, c, ...) c
@@ -275,7 +283,8 @@ void puts_static_ptr(car value, u8 size) { puts_size(*(string *) value, size); }
         }                                                                                                                      \
     });
 
-#define print(...)                                                                                                             \
+#define print(...) ({ EXPAND_general(print_local, "broken print", __VA_ARGS__); })
+#define println(...)                                                                                                           \
     ({                                                                                                                         \
         EXPAND_general(print_local, "broken print", __VA_ARGS__);                                                              \
         putchar('\n');                                                                                                         \
@@ -468,21 +477,21 @@ bool mine(const ptr pointer) {
     return output;
 }
 
-line void printer(const char x, ctring unused text) { putchar(x); }
-line void printer(ctring x, ctring unused text) { puts(x); }
-line void printer(const int x, ctring text) {
+fn_line void printer(const char x, ctring attr_unused text) { putchar(x); }
+fn_line void printer(ctring x, ctring attr_unused text) { puts(x); }
+fn_line void printer(const int x, ctring text) {
     if (text[ 0 ] == '\'') putchar(x);
     else
         puts_number(x, 1);
 }
-line void printer(const long x, ctring unused text) { puts_number(x, true); }
-line void printer(const unsigned long x, ctring unused text) { puts_number(x, false); }
-line void printer(const u4 x, ctring unused text) { puts_number(x, false); }
-line void printer(const short x, ctring unused text) { puts_number(x, false); }
-line void printer(const unsigned short x, ctring unused text) { puts_number(x, false); }
-line void printer(const float x, ctring unused text) { puts_float(x); }
-line void printer(const double x, ctring unused text) { puts_float(x); }
-line void printer(const bool x, ctring unused text) {
+fn_line void printer(const long x, ctring attr_unused text) { puts_number(x, true); }
+fn_line void printer(const unsigned long x, ctring attr_unused text) { puts_number(x, false); }
+fn_line void printer(const u4 x, ctring attr_unused text) { puts_number(x, false); }
+fn_line void printer(const short x, ctring attr_unused text) { puts_number(x, false); }
+fn_line void printer(const unsigned short x, ctring attr_unused text) { puts_number(x, false); }
+fn_line void printer(const float x, ctring attr_unused text) { puts_float(x); }
+fn_line void printer(const double x, ctring attr_unused text) { puts_float(x); }
+fn_line void printer(const bool x, ctring attr_unused text) {
     if (x) puts_static("true");
     else if (x == 0) {
         puts_static("false");
@@ -490,7 +499,7 @@ line void printer(const bool x, ctring unused text) {
         putchar(x);
     }
 }
-line void printer(var x, ctring unused text) {
+fn_line void printer(var x, ctring attr_unused text) {
     if (mine(x)) {
         if (mine(*(var *) x)) {
             // handle array
@@ -524,7 +533,7 @@ UNKNOWN:;
     puts_number((u8) x, false);
     puts_static(")>");
 }
-line void printer(car x, ctring unused text) { printer((var) x, text); }
+fn_line void printer(car x, ctring attr_unused text) { printer((var) x, text); }
 
 #define SYS_read 0
 
@@ -548,6 +557,8 @@ void realloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "remap")
 void free() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "release")));
 #endif
 
+#define t(type) type **
+
 __attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) byte strcmp(ctring left, ctring right) {
     while (*left && (*left == *right) && left++ && right++);
     return (byte) (*left) - (byte) (*right);
@@ -562,7 +573,9 @@ __attribute__((diagnose_as_builtin(__builtin_strncmp, 1, 2, 3))) byte strncmp(ct
     return (n == 0) ? 0 : ((byte) (*left) - (byte) (*right));
 }
 
-#define eq(a, b) (strcmp(a, b) == 0)
+fn_line bool eq(ctring l, ctring r) { return strcmp(l, r) == 0; }
+fn_line bool eq(t(char) l, t(char) r) { return strcmp(l[ 0 ], r[ 0 ]) == 0; }
+fn_line bool eq(int l, int r) { return l == r; }
 
 u8 strnlen(ctring txt, u8 len) {
     u8 s = 0;
@@ -616,14 +629,24 @@ __attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var 
 #define bg_ansi(r, g, b) "\e[48;2;" #r ";" #g ";" #b "m"
 #define no_ansi()        "\e[0m"
 
-#define throw(...)                                                                                                             \
-    ({                                                                                                                         \
-        print(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                         \
-        puts_static(fg_ansi(235, 235, 50) "The following is an exception-related crash: " no_ansi());                          \
-        (void) raise(SIGILL);                                                                                                  \
-        __builtin_unreachable();                                                                                               \
-        0;                                                                                                                     \
-    })
+#ifdef __MOONSHINE_EXCEPTION_DEBUGGER
+    #define throw(...)                                                                                                         \
+        ({                                                                                                                     \
+            println(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                   \
+            puts_static(fg_ansi(235, 235, 50) "The following is an exception-related crash: " no_ansi());                      \
+            (void) raise(SIGILL);                                                                                              \
+            __builtin_unreachable();                                                                                           \
+            0;                                                                                                                 \
+        })
+#else
+    #define throw(...)                                                                                                         \
+        ({                                                                                                                     \
+            println(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                   \
+            exit(1);                                                                                                           \
+            __builtin_unreachable();                                                                                           \
+            0;                                                                                                                 \
+        })
+#endif
 
 var __bare_mremap(const var ptr, const uint64_t old, const uint64_t new) [[clang::allocating]] {
     const var new_ptr = __bare_alloc(new);
@@ -720,18 +743,11 @@ static int compare_locations(const void *a, const void *b) {
     return 0;
 }
 
-struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
+struct FreeBlock find_free_space(struct Page *page) {
     if (!page->dirty) return page->last_result;
 
     struct FreeBlock max_free = { 0, 0 };
-    if (page == NULL) return max_free;
-
-    uint64_t allocated_count = 0;
-    for (uint64_t i = 0; i < page->pointers.size; ++i) {
-        if (page->pointers.data[ i ].allocated) allocated_count++;
-    }
-
-    if (allocated_count == 0) {
+    if (page == NULL || page->pointers.size == 0) {
         max_free.start    = 0;
         max_free.size     = page->size;
         page->dirty       = false;
@@ -739,45 +755,46 @@ struct FreeBlock find_free_space(struct Page *page) [[clang::nonallocating]] {
         return max_free;
     }
 
-    struct AllocatedPointer allocated_blocks[ allocated_count ];
-    uint64_t                idx = 0;
-    for (uint64_t i = 0; i < page->pointers.size; ++i) {
-        if (page->pointers.data[ i ].allocated) { allocated_blocks[ idx++ ] = page->pointers.data[ i ]; }
-    }
+    struct AllocatedPointer sorted_pointers[ sizeof(struct AllocatedPointer) * page->pointers.size ];
+    for (u8 i = 0; i < page->pointers.size; i++) { sorted_pointers[ i ] = page->pointers.data[ i ]; }
 
-    qsort(allocated_blocks, allocated_count, sizeof(struct AllocatedPointer), compare_locations);
+    qsort(sorted_pointers, page->pointers.size, sizeof(struct AllocatedPointer), compare_locations);
 
-    uint64_t prev_end = 0;
-    max_free.size     = 0;
+    u8 prev_end = 0;
+    for (u8 i = 0; i < page->pointers.size; i++) {
+        struct AllocatedPointer *block = &sorted_pointers[ i ];
+        if (!block->allocated) continue;
 
-    for (uint64_t i = 0; i < allocated_count; ++i) {
-        struct AllocatedPointer *block       = &allocated_blocks[ i ];
-        uint64_t                 block_end   = block->location + block->size;
-        uint64_t                 current_end = block_end > page->size ? page->size : block_end;
+        u8 block_start = block->location;
+        u8 block_end   = block_start + block->size;
 
-        if (block->location > prev_end) {
-            uint64_t gap_size = block->location - prev_end;
+        if (block_start > prev_end) {
+            u8 gap_size = block_start - prev_end;
             if (gap_size > max_free.size) {
                 max_free.start = prev_end;
                 max_free.size  = gap_size;
             }
         }
-
-        if (current_end > prev_end) { prev_end = current_end; }
+        if (block_end > prev_end) { prev_end = block_end; }
     }
 
     if (prev_end < page->size) {
-        uint64_t gap_size = page->size - prev_end;
+        u8 gap_size = page->size - prev_end;
         if (gap_size > max_free.size) {
             max_free.start = prev_end;
             max_free.size  = gap_size;
         }
     }
 
-    if (max_free.start % 16 != 0) {
-        const u8 change = align_value(max_free.start) - max_free.start;
-        max_free.start += change;
-        max_free.size -= change;
+    if (max_free.size > 0) {
+        u8 aligned_start = (max_free.start + 15) & ~15ULL;
+        u8 adjustment    = aligned_start - max_free.start;
+        if (adjustment < max_free.size) {
+            max_free.start = aligned_start;
+            max_free.size -= adjustment;
+        } else {
+            max_free.size = 0; // No space after alignment
+        }
     }
 
     page->dirty       = false;
@@ -916,7 +933,7 @@ struct FoundPointer find_pointer(const var addr) {
                 }
             }
 
-            if (!best_ptr->allocated) throw("Unallocated pointer? ");
+            if (!best_ptr->allocated) throw("Unallocated pointer? ", addr);
             if (best_ptr == NULL) throw("Pointer for location does not exist in page");
 
             return (struct FoundPointer) {
@@ -949,7 +966,6 @@ __attribute__((diagnose_as_builtin(__builtin_realloc, 1, 2))) var remap(const va
     return new_ptr;
 }
 
-#define t(type) type **
 #define de(obj) (*(obj))
 
 const var *__new_array(const string type_name, const u4 type_size, const u4 count) [[clang::allocating]] {
@@ -1043,7 +1059,8 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
 #define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
 #define element_size(array)                                                                                                    \
     (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
-#define last(array) ((array)[ 0 ][ count(array) ])
+#define last(array)  ((array)[ 0 ][ count(array) ])
+#define first(array) get(array, 0)
 #define safe_push(type, array, ptr, ...)                                                                                       \
     ({                                                                                                                         \
         type **_array = array;                                                                                                 \
@@ -1052,34 +1069,65 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
     })
 #define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
 
-var return_item(var **arr, u8 index) {
+var return_item(var **arr, i8 index) {
     if (unlikely(index >= count(arr))) {
         throw("Requested index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
     }
-    if (unlikely(index < 0)) throw("Cannot access negative offset in array!");
+    if (unlikely(index < 0)) throw("Cannot access negative offset ", index, " in array!");
 
-    return &arr[ 0 ][ index * element_size(arr) ];
+    return &((byte **) arr)[ 0 ][ index * element_size(arr) ];
 }
 
-void set_item(var **arr, u8 index, var value) {
+var return_item_unbound(var **arr, i8 index) { return &((byte **) arr)[ 0 ][ index * element_size(arr) ]; }
+
+void set_item(var **arr, i8 index, var value) {
     if (unlikely(index >= count(arr))) {
         throw("Target index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
     }
-    if (unlikely(index < 0)) throw("Cannot write to negative offset in array!");
+    if (unlikely(index < 0)) throw("Cannot write to negative offset ", index, " in array!");
 
-    memcpy(&arr[ 0 ][ index * element_size(arr) ], value, element_size(arr));
+    memcpy(&((byte **) arr)[ 0 ][ index * element_size(arr) ], value, element_size(arr));
 }
 
-#define address_item(__array, __index) (typeof(__array[0])) return_item((var **) __array, __index)
-#define get(__array, __index)          (*(typeof(__array[0])) return_item((var **) __array, __index))
-#define set(__array, __index, __value) ({ typeof(__array[0][0]) v = __value; set_item((var **) __array, __index, &v); })
+#define branchless(c, a, b) !!c * a + !!!c * b
 
-#define in               ,
-#define foreach(...)     foreach_xp(foreach_inner, (__VA_ARGS__))
-#define foreach_xp(a, b) a b
-#define foreach_inner(item, array)                                                                                             \
-    scope(cat(item, _index), (var) 0) for (auto item = get(array, (u8) 0); (u8) cat(item, _index) < count(array);              \
-                                           item      = get(array, (u8) ++cat(item, _index)))
+#define address_item(__array, __index) (typeof(__array[ 0 ])) return_item((var **) __array, (u8) __index)
+#define get(__array, __index)          (*(typeof(__array[ 0 ])) return_item((var **) __array, (u8) __index))
+#define get_unbound(__array, __index)  (*(typeof(__array[ 0 ])) return_item_unbound((var **) __array, (u8) __index))
+#define set(__array, __index, __value)                                                                                         \
+    ({                                                                                                                         \
+        typeof(__array[ 0 ][ 0 ]) v = __value;                                                                                 \
+        set_item((var **) __array, __index, &v);                                                                               \
+    })
+
+#define in                         ,
+#define foreach(...)               foreach_inner(__VA_ARGS__)
+#define foreach_inner(item, array) foreach_inner_2(item, cat(item, _index), array)
+#define foreach_inner_2(item, index, array)                                                                                    \
+    scope(                                                                                                                     \
+        index, (var) 0) for (auto attr_unused item = get_unbound(array, (u8) 0); (u8) index < count(array);                    \
+                             item                  = get_unbound(                                                              \
+                                 array, (u8) index == count(array) - 1 ? count(array) - 1 + 0 * (u8) ++index : (u8) ++index))
+
+#define map(tuple, ...) exp(map__inner, expand tuple, __VA_ARGS__)
+#define map__inner(out_type, array, item, ...)                                                                                 \
+    ({                                                                                                                         \
+        auto __original_array      = array;                                                                                    \
+        t(out_type) __result_array = new (out_type, count(array));                                                             \
+        foreach (item in __original_array) {                                                                                   \
+            out_type result = __VA_ARGS__;                                                                                     \
+            set(__result_array, (u8) cat(item, _index), result);                                                               \
+        }                                                                                                                      \
+        __result_array;                                                                                                        \
+    })
+#define reduce(array, tuple, ...) exp(reduce__inner, array, expand tuple, __VA_ARGS__)
+#define reduce__inner(array, initial, item, ...)                                                                               \
+    ({                                                                                                                         \
+        auto __original_array = array;                                                                                         \
+        auto output           = initial;                                                                                       \
+        foreach (item in __original_array) { output = __VA_ARGS__; };                                                          \
+        output;                                                                                                                \
+    })
 
 #define LIBC_WARNINGS_TEXT(name)                                                                                               \
     "[[>>> The " name                                                                                                          \
@@ -1105,14 +1153,14 @@ t(char) strdup(ctring str) {
 }
 
 var **__reverse_array(var **array) {
-    const u4 element_size = element_size(array);
-    const u4 count_val    = count(array);
+    const u8 element_size = element_size(array);
+    const u8 count_val    = count(array);
     if (count_val <= 1) return array;
     byte temp[ element_size ];
 
-    for (u4 i = 0; i < count_val / 2; i++) {
-        u4 left_idx  = i;
-        u4 right_idx = count_val - 1 - i;
+    for (u8 i = 0; i < count_val / 2; i++) {
+        u8 left_idx  = i;
+        u8 right_idx = count_val - 1 - i;
 
         memcpy(temp, address_item(array, left_idx), element_size);
         memcpy(address_item(array, left_idx), address_item(array, right_idx), element_size);
@@ -1122,7 +1170,7 @@ var **__reverse_array(var **array) {
     return array;
 }
 
-#define reverse_array(...) (typeof(__VA_ARGS__)) __reverse_array((var *) __VA_ARGS__)
+#define reverse_array(...) (typeof(__VA_ARGS__)) __reverse_array((var **) __VA_ARGS__)
 
 t(char) strndup(ctring str, u8 len) {
     const auto obj = new (char, len + 1);
@@ -1138,18 +1186,15 @@ typedef struct linkednode linkednode;
 
 // A typical node in a linked list.
 struct linkednode {
-    bool        init;
     linkednode *back[ 2 ];  // Double-index back-refernece for the node
     linkednode *front[ 2 ]; // Double-index forward-feference for the node
     var         data;       // The data for the linked list node
 };
 
 typedef struct linkedlist {
-    u8          size;       // The size of a linked list
-    linkednode *head;       // The head pointer for the linked list
-    linkednode *tail;       // The tail pointer for the linked list
-    u8          pool_size;  // The size of the last memory pool.
-    t(t(linkednode)) pools; // Memory pool.
+    u8          size; // The size of a linked list
+    linkednode *head; // The head pointer for the linked list
+    linkednode *tail; // The tail pointer for the linked list
 } linkedlist;
 
 // Create an empty linked list.
@@ -1159,35 +1204,13 @@ flatten linkedlist *create_linkedlist() {
     list->head       = NULL;
     list->tail       = NULL;
 
-    list->pool_size = 1024;
-    list->pools     = new (t(linkednode));
-    push(list->pools, new (linkednode, list->pool_size));
-
     return list;
 }
 
 // Push a value to the end of a linked list.
-void push_linkedlist(linkedlist *list, var value) {
-    // Get object reference from memory pool.
+linkednode *push_linkedlist(linkedlist *list, var value) {
     linkednode *node = obj(linkednode);
 
-    // foreach (pool in list->pools) {
-    //     if (!pool) continue;
-    //     foreach (candid in pool) {
-    //         if (candid.init) continue;
-    //         node = &pool[ 0 ][ (u8) candid_index ];
-    //         break;
-    //     }
-    // }
-
-    // if (node == NULL) {
-    //     t(linkednode) new_pool = new (linkednode, list->pool_size *= 2);
-
-    //     node = &last(new_pool);
-    //     push(list->pools, new_pool);
-    // }
-
-    node->init = true;
     node->data = value;
 
     auto follower      = list->tail;
@@ -1204,6 +1227,32 @@ void push_linkedlist(linkedlist *list, var value) {
 
     list->tail = node;
     if (!list->head) list->head = node;
+
+    return node;
+}
+
+// Push a value to the front of a linked list.
+linkednode *push_front_linkedlist(linkedlist *list, var value) {
+    linkednode *node = obj(linkednode);
+
+    node->data = value;
+
+    auto next        = list->head;
+    auto double_next = list->head == NULL ? NULL : list->head->front[ 0 ];
+
+    node->front[ 0 ] = next;
+    node->front[ 1 ] = double_next;
+    node->back[ 0 ] = node->back[ 1 ] = NULL;
+
+    if (next) {
+        next->back[ 0 ] = node;
+        if (double_next) double_next->back[ 1 ] = node;
+    }
+
+    list->head = node;
+    if (!list->tail) list->tail = node;
+
+    return node;
 }
 
 linkednode *index_to_ptr(linkedlist *list, u8 index) {
@@ -1259,7 +1308,7 @@ linkednode *index_to_ptr(linkedlist *list, u8 index) {
 
 // This function will return a pointer to the linkednode, if free = false, and a pointer to the data contained inside, if free =
 // true.
-overload var pop_item(linkedlist *list, bool free, linkednode *item) {
+fn_overload var pop_item(linkedlist *list, bool free, linkednode *item) {
     if (item == NULL) return NULL;
 
     if (list->tail == item) list->tail = item->back[ 0 ];
@@ -1282,7 +1331,6 @@ overload var pop_item(linkedlist *list, bool free, linkednode *item) {
 
     auto ptr = item->data;
     if (free) {
-        item->init = false;
         return ptr;
     } else {
         return item;
@@ -1291,10 +1339,10 @@ overload var pop_item(linkedlist *list, bool free, linkednode *item) {
 
 // This function will return a pointer to the linkednode, if free = false, and a pointer to the data contained inside, if free =
 // true.
-line var pop_item(linkedlist *list, bool free, u8 index) { return pop_item(list, free, index_to_ptr(list, index)); }
+fn_line var pop_item(linkedlist *list, bool free, u8 index) { return pop_item(list, free, index_to_ptr(list, index)); }
 
 // This function removes a node from the linked list, and then places it at the start of the list.
-overload void front_insert(linkedlist *list, linkednode *node) {
+fn_overload void front_insert(linkedlist *list, linkednode *node) {
     pop_item(list, false, node);
     if (list->head) {
         node->front[ 0 ]      = list->head;
@@ -1307,7 +1355,35 @@ overload void front_insert(linkedlist *list, linkednode *node) {
 }
 
 // This function removes a node from the linked list, and then places it at the start of the list.
-line void front_insert(linkedlist *list, u8 index) { return front_insert(list, index_to_ptr(list, index)); }
+fn_line void front_insert(linkedlist *list, u8 index) { return front_insert(list, index_to_ptr(list, index)); }
+
+linkedlist *clone_linkedlist(linkedlist *original) {
+    if (original == NULL) { return NULL; }
+
+    linkedlist *new_list = create_linkedlist();
+    new_list->size       = original->size;
+
+    linkednode *current = original->head;
+    while (current != NULL) {
+        push_linkedlist(new_list, current->data);
+        current = current->front[ 0 ];
+    }
+
+    return new_list;
+}
+
+void free_linkedlist(linkedlist *list) {
+    if (list == NULL) return;
+
+    linkednode *current = list->head;
+    while (current != NULL) {
+        linkednode *next = current->front[ 0 ];
+        release(current);
+        current = next;
+    }
+
+    release(list);
+}
 
 typedef u8 (*hash_function)(ctring);
 
@@ -1384,261 +1460,159 @@ u8 table_hash_3(ctring data) {
     return h1;
 }
 
-typedef struct hashnode {
-    u8     hash;
-    ctring key;
-    car    value;
-} hashnode;
+#define LOAD_FACTOR_THRESHOLD 0.7
 
-typedef struct hashtable {
+typedef enum entry_state { EMPTY, OCCUPIED, TOMBSTONE } entry_state;
+
+typedef struct hashentry {
+    entry_state state;
+    ctring      key;
+    car         value;
+} hashentry;
+
+typedef struct hasharray {
     hash_function proto;
-    bool          use_hash;
     u8            size;
-    int8_t        current_recent_access;
-    struct hashtable_optimizations {
-        bool only_recent_collision_checks; // Fast-ish option? Only checks the recent access table for collisions.
-        bool no_collision_checks;          // Fastest option. Disables collision checking altogether.
-        bool run_ptr_check; // Faster option. Checks hash equivalency and pointer equivalency. Reduces rate of collisions if
-                            // the string pointers used for fetching entries remain persistent. Setting this option to true
-                            // will disable collision checks.
-        byte collision_character_check_count; // Fast option. Check the first N characters of the inputs together, alongside the
-                                              // hash. Setting this option to a non-zero value will disable collision checks.
-        bool no_hash; // Slowest option. Always use strcmp to find entries. Does not bother hashing values or checking for
-                      // collisions.
-    } optimizations;
-    struct recent_access {
-        u8     hash;
-        ctring key;
-        car    value;
-    } recent_access_nodes[ 16 ]; // Recently accessed table entries.
-    linkedlist *entries;         // Linked list of hashnode structs.
-} hashtable;
+    u8            capacity;
+    hashentry    *entries;
+} hasharray;
 
-// TODO: Add a rehash function that allows the user to change the hash function, recompute all the hashes and detect collisions.
-
-//
-hashtable *create_table(hash_function proto) {
-    hashtable  node     = { .use_hash              = true,
-                            .size                  = 0,
-                            .proto                 = proto,
-                            .entries               = create_linkedlist(),
-                            .current_recent_access = -1,
-                            .recent_access_nodes   = { [0] = { 0, 0, 0 }, [15] = { 0, 0, 0 } },
-                            .optimizations         = { // Default optimization options. Check for collisions.
-                                                       .only_recent_collision_checks    = false,
-                                                       .no_hash                         = false,
-                                                       .run_ptr_check                   = false,
-                                                       .collision_character_check_count = 0,
-                                                       .no_collision_checks             = false } };
-    hashtable *node_ref = obj(hashtable);
-    *node_ref           = node;
-
-    return node_ref;
+hasharray *create_hasharray(hash_function proto) {
+    hasharray *ha = obj(hasharray);
+    ha->proto     = proto;
+    ha->size      = 0;
+    ha->capacity  = 16;
+    ha->entries   = (hashentry *) alloc(sizeof(hashentry) * ha->capacity);
+    for (u8 i = 0; i < ha->capacity; i++) {
+        ha->entries[ i ].state = EMPTY;
+        ha->entries[ i ].key   = NULL;
+        ha->entries[ i ].value = NULL;
+    }
+    return ha;
 }
 
-overload hashtable *create_table(hash_function proto, struct hashtable_optimizations optimizations) {
-    auto table           = create_table(proto);
-    table->optimizations = optimizations;
-    return table;
+void resize_hasharray(hasharray *ha) {
+    u8         new_capacity = ha->capacity * 2;
+    hashentry *new_entries  = (hashentry *) alloc(sizeof(hashentry) * new_capacity);
+    for (u8 i = 0; i < new_capacity; i++) {
+        new_entries[ i ].state = EMPTY;
+        new_entries[ i ].key   = NULL;
+        new_entries[ i ].value = NULL;
+    }
+
+    for (u8 i = 0; i < ha->capacity; i++) {
+        if (ha->entries[ i ].state == OCCUPIED) {
+            ctring key   = ha->entries[ i ].key;
+            car    value = ha->entries[ i ].value;
+            u8     hash  = ha->proto(key);
+            u8     index = hash % new_capacity;
+            while (new_entries[ index ].state == OCCUPIED) { index = (index + 1) % new_capacity; }
+            new_entries[ index ].state = OCCUPIED;
+            new_entries[ index ].key   = key;
+            new_entries[ index ].value = value;
+        }
+    }
+
+    release(ha->entries);
+    ha->entries  = new_entries;
+    ha->capacity = new_capacity;
 }
 
-flatten void add_recent_access(hashtable *table, hashnode node) {
-    auto ref = &table->recent_access_nodes[ table->current_recent_access = (table->current_recent_access + 1) % 16 ];
-    if (!table->optimizations.no_hash) ref->hash = node.hash;
-    ref->key   = node.key;
-    ref->value = node.value;
+void set_hasharray(hasharray *ha, ctring key, car value) {
+    if (key == NULL) throw("Cannot insert NULL key into hasharray");
+    if (ha->size >= (u8) (ha->capacity * LOAD_FACTOR_THRESHOLD)) { resize_hasharray(ha); }
+
+    u8 hash            = ha->proto(key);
+    u8 index           = hash % ha->capacity;
+    u8 original_index  = index;
+    u8 first_tombstone = -1;
+
+    while (true) {
+        hashentry *entry = &ha->entries[ index ];
+        if (entry->state == EMPTY) {
+            u8         insert_index = (first_tombstone != (u8) -1) ? first_tombstone : index;
+            hashentry *insert_entry = &ha->entries[ insert_index ];
+            insert_entry->state     = OCCUPIED;
+            insert_entry->key       = key;
+            insert_entry->value     = value;
+            ha->size++;
+            return;
+        } else if (entry->state == OCCUPIED && eq(entry->key, key)) {
+            entry->value = value;
+            return;
+        } else if (entry->state == TOMBSTONE && first_tombstone == (u8) -1) {
+            first_tombstone = index;
+        }
+        index = (index + 1) % ha->capacity;
+        if (index == original_index) { throw("Hasharray is full!"); }
+    }
 }
 
-// TODO: Improve performance
+car get_hasharray(hasharray *ha, ctring key) {
+    if (key == NULL) { throw("Cannot retrieve NULL key from hasharray"); }
+    u8 hash           = ha->proto(key);
+    u8 index          = hash % ha->capacity;
+    u8 original_index = index;
 
-// Sets a value in the hashtable.
-void set_hashtable(hashtable *table, ctring key, car value) {
-    hashnode *node = obj(hashnode);
-    node->hash     = table->proto(key);
-    node->key      = key;
-    node->value    = value;
-
-    // skip collision detection if optimizations are enabled
-    if (table->optimizations.no_hash || table->optimizations.no_collision_checks
-        || table->optimizations.collision_character_check_count > 0)
-        goto FINISH;
-
-    // maybe there's a better option than checking for collisions all the time?
-
-    table->use_hash = true;
-
-    if (table->optimizations.no_collision_checks) goto FINISH;
-
-    // check for collisions in the recent access
-    for (u8 i = 0; i < 16; i++) {
-        if (table->recent_access_nodes[ i ].hash == 0 && table->recent_access_nodes[ i ].key == NULL) continue;
-        if (table->recent_access_nodes[ i ].hash != node->hash) continue;
-        // collision detected, disable usage of hashes
-        table->use_hash = false;
-        goto FINISH;
-    }
-
-    if (table->optimizations.only_recent_collision_checks) goto FINISH;
-
-    // check for collisions in the hash table, maybe slow?
-    // improve the speed on this!!
-    auto c_head = table->entries->head;
-    auto c_tail = table->entries->tail;
-    for (; c_head != NULL || c_tail != NULL;) {
-        if (c_head) {
-            auto head = (hashnode *) c_head->data;
-            if (head->hash == node->hash) { // collision detected on head.
-                table->use_hash = false;
-                goto FINISH;
-            }
+    while (true) {
+        hashentry *entry = &ha->entries[ index ];
+        if (entry->state == EMPTY) {
+            return NULL;
+        } else if (entry->state == OCCUPIED && eq(entry->key, key)) {
+            return entry->value;
         }
-
-        if (c_tail) {
-            auto tail = (hashnode *) c_tail->data;
-            if (tail->hash == node->hash) { // collision detected on tail.
-                table->use_hash = false;
-                goto FINISH;
-            }
-        }
-
-        if (c_head) c_head = c_head->front[ 0 ];
-        if (c_tail) c_tail = c_tail->back[ 0 ];
+        index = (index + 1) % ha->capacity;
+        if (index == original_index) return NULL;
     }
-
-FINISH:
-    push_linkedlist(table->entries, node);
-    // add_recent_access(table, *node);
 }
 
-overload car get_hashtable(hashtable *table, u8 hash, ctring key);
+void delete_hasharray(hasharray *ha, ctring key) {
+    if (key == NULL) { throw("Cannot delete NULL key from hasharray"); }
+    u8 hash           = ha->proto(key);
+    u8 index          = hash % ha->capacity;
+    u8 original_index = index;
 
-// Gets a value from the hashtable using just a key. This approach is not very performant if hashing has been disabled.
-overload car get_hashtable(hashtable *table, ctring key) {
-    if (table->use_hash && !table->optimizations.no_hash) return get_hashtable(table, table->proto(key), key);
-
-    for (byte i = 0; i < 16; i++) {
-        if (table->recent_access_nodes[ i ].hash == 0 && table->recent_access_nodes[ i ].key == NULL) continue;
-        if (table->recent_access_nodes[ i ].key == key) return table->recent_access_nodes[ i ].value;
-        if (eq(table->recent_access_nodes[ i ].key, key)) return table->recent_access_nodes[ i ].value;
-    }
-
-    auto c_head = table->entries->head;
-    auto c_tail = table->entries->tail;
-
-    for (; c_head != NULL || c_tail != NULL;) {
-        if (c_head) {
-            hashnode *head = c_head->data;
-            if (head->key != key) goto LAST;
-            if (!eq(head->key, key)) goto LAST;
-            add_recent_access(table, *(hashnode *) head);
-            return head->value;
+    while (true) {
+        hashentry *entry = &ha->entries[ index ];
+        if (entry->state == EMPTY) return;
+        else if (entry->state == OCCUPIED && eq(entry->key, key)) {
+            entry->state = TOMBSTONE;
+            ha->size--;
+            return;
         }
-
-        if (c_tail) {
-            hashnode *tail = c_tail->data;
-            if (tail->key != key) goto LAST;
-            if (!eq(tail->key, key)) goto LAST;
-            add_recent_access(table, *(hashnode *) tail);
-            return tail->value;
-        }
-
-    LAST:
-
-        if (c_head) c_head = c_head->front[ 0 ];
-        if (c_tail) c_tail = c_tail->back[ 0 ];
+        index = (index + 1) % ha->capacity;
+        if (index == original_index) return;
     }
-
-    return NULL;
 }
 
-// Gets a value from the hashtable using a key and a hash. The key is not typically used unless optimization checks are enabled.
-overload car get_hashtable(hashtable *table, u8 hash, ctring key) {
-    if (!table->use_hash || table->optimizations.no_hash) return get_hashtable(table, key);
+void free_hasharray(hasharray *ha) {
+    release(ha->entries);
+    release(ha);
+}
 
-    bool        matched        = false;
-    linkednode *best_candidate = NULL;
+hasharray *clone_hasharray(hasharray *original) {
+    if (original == NULL) { return NULL; }
 
-    for (byte i = 0; i < 16; i++) {
-        auto node = table->recent_access_nodes[ i ];
-        if (node.hash == 0 && node.key == NULL) continue;
-        if (node.hash != hash) continue;
-        // Hash matches.
-        if (table->optimizations.run_ptr_check && node.key == key) return node.value;
-        // Check key characters.
-        if (table->optimizations.collision_character_check_count
-            && strncmp(node.key, key, table->optimizations.collision_character_check_count) == 0)
-            return node.value;
-        // No hash matches. Set best candidate.
-        matched        = true;
-        best_candidate = (var) node.value;
+    hasharray *clone = obj(hasharray);
+    if (clone == NULL) { throw("Failed to allocate memory for cloned hasharray"); }
+
+    clone->proto    = original->proto;
+    clone->size     = original->size;
+    clone->capacity = original->capacity;
+
+    clone->entries = (hashentry *) alloc(sizeof(hashentry) * clone->capacity);
+    if (clone->entries == NULL) {
+        release(clone);
+        throw("Failed to allocate memory for cloned hasharray entries");
     }
 
-    // Best candidate here acts as a holder for the value, not an actual linkednode.
-    if (matched) return best_candidate;
-
-    // Use hash
-    auto c_head = table->entries->head;
-    auto c_tail = table->entries->tail;
-
-    for (; c_head != NULL || c_tail != NULL;) {
-        // Bug: Investigate why this happens.
-        if (likely(c_head) && unlikely(c_head == c_head->front[ 0 ])) c_head = NULL;
-        if (likely(c_tail) && unlikely(c_tail == c_tail->back[ 0 ])) c_tail = NULL;
-
-        if (c_head) {
-            hashnode *head = c_head->data;
-            if (!head) goto CONT1;
-            if (head->hash == hash) { // Check optimization flags.
-                // Hash matches and the pointer check succeeded. Return the candidate immediately.
-                if (table->optimizations.run_ptr_check && head->key == key) {
-                    add_recent_access(table, *(hashnode *) head);
-                    return head->value;
-                } // Check key characters.
-                if (table->optimizations.collision_character_check_count
-                    && strncmp(head->key, key, table->optimizations.collision_character_check_count) == 0) {
-                    add_recent_access(table, *(hashnode *) head);
-                    return head->value;
-                }
-                // Hash matches? If so, set it as the best candidate.
-                best_candidate = c_head;
-                goto CONT1;
-            }
-        }
-
-    CONT1:
-
-        if (c_tail) {
-            hashnode *tail = c_tail->data;
-            if (!tail) goto CONT2;
-            if (tail->hash == hash) { // Check optimization flags.
-                // Hash matches and the pointer check succeeded. Return the candidate immediately.
-                if (table->optimizations.run_ptr_check && tail->key == key) {
-                    add_recent_access(table, *(hashnode *) tail);
-                    return tail->value;
-                }
-                // Check key characters.
-                if (table->optimizations.collision_character_check_count
-                    && strncmp(tail->key, key, table->optimizations.collision_character_check_count) == 0) {
-                    add_recent_access(table, *(hashnode *) tail);
-                    return tail->value;
-                }
-                // Hash matches? If so, set it as the best candidate.
-                best_candidate = c_tail;
-                goto CONT2;
-            }
-        }
-
-    CONT2:
-
-        if (c_head) c_head = c_head->front[ 0 ];
-        if (c_tail) c_tail = c_tail->back[ 0 ];
+    for (u8 i = 0; i < original->capacity; i++) {
+        clone->entries[ i ].state = original->entries[ i ].state;
+        clone->entries[ i ].key   = original->entries[ i ].key;
+        clone->entries[ i ].value = original->entries[ i ].value;
     }
 
-    if (best_candidate) front_insert(table->entries, best_candidate);
-    else { return NULL; }
-    add_recent_access(table, *(hashnode *) best_candidate->data);
-
-    return ((hashnode *) best_candidate->data)->value;
+    return clone;
 }
 
 string *environ;
