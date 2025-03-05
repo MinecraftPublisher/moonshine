@@ -1291,10 +1291,7 @@ const var *__new_array(const string type_name, const u8 type_size, const u8 coun
     return holder;
 }
 
-// TODO:
-// 1. Add a hidden capacity checker
-// 2. Based on the capacity, detect whether we should or shouldn't reallocate the memory
-// 3. eg. if an item is popped, we may keep that memory intact so that further allocations and memory copies will be unnecessary
+// TODO: Add a demand level for the capacity checker, to modify the alignment amount the more the array increases in size.
 
 flatten void unsafe_extend(
     var      *array_ref,
