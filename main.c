@@ -2,7 +2,17 @@
 
 #include "moonshine.h"
 
-const enum { test_datatype, test_linkedlist, test_hashtable, test_alloc, test_array, test_hashtable_2 } current_test = test_hashtable;
+const enum {
+    test_datatype,
+    test_linkedlist,
+    test_hashtable,
+    test_alloc,
+    test_array,
+    test_hashtable_2,
+    test_garbage_collector,
+    test_minor_features
+} current_test
+    = test_minor_features;
 
 int main() {
     if (current_test == test_alloc) {
@@ -26,15 +36,13 @@ int main() {
         push(arr, 5);
         set(arr, 0, 2);
 
-        println("Original");
-
-        foreach(i in arr) println("[", (u8)i_index, "] ", i);
-
-        println("Reversed");
+        foreach (i in arr) println("[", (u8) i_index, "] ", i);
 
         reverse_array(arr);
 
-        foreach(i in arr) println("[", (u8)i_index, "] ", i);
+        println("Reversed");
+
+        foreach (i in arr) println("[", (u8) i_index, "] ", i);
     } else if (current_test == test_datatype) {
         datatype(binarytree, ((leaf, int), (node, binarytree *, int, binarytree *) ));
         const auto tree = instance(binarytree, leaf, 3);
@@ -53,8 +61,7 @@ int main() {
 
         print((u8) index_to_ptr(ll, 12)->data);
     } else if (current_test == test_hashtable) {
-        const auto ht = create_hasharray(
-            table_hash_2);
+        const auto ht = create_hasharray(table_hash_2);
 
         for (u8 i = 0; i < 10000000; i++) {
             if (i % 1000000 == 0) println("I ", i);
@@ -67,9 +74,26 @@ int main() {
         const auto ht = create_hasharray(table_hash_2);
 
         set_hasharray(ht, "hello", "hi");
-        println("Value: ", (string)get_hasharray(ht, "hello"));
+        println("Value: ", (string) get_hasharray(ht, "hello"));
         set_hasharray(ht, "hello", "meow");
-        println("Value after: ", (string)get_hasharray(ht, "hello"));
+        println("Value after: ", (string) get_hasharray(ht, "hello"));
+    } else if (current_test == test_garbage_collector) {
+        auto v1 = new (int, 5);
+        auto v2 = obj(int);
+        auto v3 = alloc(25);
+        auto v4 = create_linkedlist();
+        auto v5 = create_hasharray(table_hash_2);
+
+        set_hasharray(v5, "hello", "world");
+        println("Hash ", v5);
+
+        collect_garbage(true);
+    } else if (current_test == test_minor_features) {
+        // Minor feature: Custom, better designed float representation
+        auto x = (struct moonshine_float) { .number = 1234, .decimal = 2 };
+        println(x);
+        // Normal float enhancement
+        println(12.34);
     }
 
     else {

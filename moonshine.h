@@ -98,6 +98,7 @@ int errno = 0;
 #endif
 
 #define __WORDSIZE_TIME64_COMPAT32 1
+typedef long unsigned int size_t;
 
 #ifdef __x86_64__
     #define __syscall_WORDSIZE 64
@@ -224,6 +225,13 @@ const bool false = 0;
 static char buffer[ BUFFER_SIZE ];
 static int  buffer_index = 0;
 
+__attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var _dest, car _src, const unsigned long n) {
+    string dest = _dest;
+    ctring src  = _src;
+
+    for (u8 i = 0; i < n; i++) dest[ i ] = src[ i ];
+}
+
 int flush(int fd);
 
 int flush(int fd) {
@@ -310,31 +318,72 @@ void puts_number(const int64_t number, const bool is_signed) {
     for (int i = pos; i < 20; ++i) { putchar(buffer[ i ]); }
 }
 
-void puts_float(const float number) {
-    int   int_part  = (int) number;
-    float frac_part = number - int_part;
+int sign_bit(float f) {
+    u4 bits;
+    memcpy(&bits, &f, sizeof(bits));
+    return (bits >> 31) & 1;
+}
 
-    if (int_part < 0) {
-        putchar('-');
-        int_part = -int_part;
+bool is_infinity(float f) {
+    u4 bits;
+    memcpy(&bits, &f, sizeof(bits));
+    return (bits & 0x7fffffff) == 0x7f800000;
+}
+
+bool is_nan(float f) {
+    u4 bits;
+    memcpy(&bits, &f, sizeof(bits));
+    return (bits & 0x7f800000) == 0x7f800000 && (bits & 0x007fffff) != 0;
+}
+
+void puts_float(const double number) {
+    if (is_nan(number)) {
+        puts_static("nan");
+        return;
+    }
+    if (is_infinity(number)) {
+        if (sign_bit(number)) putchar('-');
+        puts_static("inf");
+        return;
     }
 
-    char int_buffer[ 12 ];
-    int  i = 0;
-    do {
-        int_buffer[ i++ ] = (int_part % 10) + '0';
-        int_part /= 10;
-    } while (int_part > 0);
+    double num = number;
 
-    while (i > 0) { putchar(int_buffer[ --i ]); }
+    bool is_negative = number < 0;
+    if (is_negative) num = -num;
 
-    putchar('.');
+    int64_t int_part  = (int64_t) num;
+    double  frac_part = num - (double) int_part;
 
-    for (int j = 0; j < 6; j++) {
-        frac_part *= 10;
-        int frac_digit = (int) frac_part;
-        putchar(frac_digit + '0');
-        frac_part -= frac_digit;
+    int64_t frac_scaled = (int64_t) (frac_part * 1000000.0 + 0.5);
+    if (frac_scaled >= 1000000) {
+        int_part++;
+        frac_scaled = 0;
+    }
+
+    if (is_negative) putchar('-');
+
+    puts_number(int_part, false);
+
+    if (frac_scaled == 0) return;
+
+    char frac_digits[ 6 ];
+    for (int i = 5; i >= 0; i--) {
+        frac_digits[ i ] = (frac_scaled % 10) + '0';
+        frac_scaled /= 10;
+    }
+
+    int last_non_zero = -1;
+    for (int i = 5; i >= 0; i--) {
+        if (frac_digits[ i ] != '0') {
+            last_non_zero = i;
+            break;
+        }
+    }
+
+    if (last_non_zero >= 0) {
+        putchar('.');
+        for (int i = 0; i <= last_non_zero; i++) { putchar(frac_digits[ i ]); }
     }
 }
 
@@ -455,9 +504,21 @@ int wait(const int *status) {
     return result;
 }
 
+struct FoundPointer {
+    i8                       page_index;
+    i8                       allocation_size;
+    struct AllocatedPointer *pointer_ref;
+    struct Page             *page_ref;
+};
+
+fn_line struct FoundPointer find_pointer(const var addr, bool throw_on_error);
+
+// TODO: Replace this with a pointer finder by borrowing logic from the GC
+
 // Check if the current process tree owns a pointer. Expensive, do not use
 // sparingly.
 bool mine(const ptr pointer) {
+    // Old approach, slow
     bool *glob_var = __bare_alloc(sizeof(bool));
 
     (void) demon({
@@ -477,6 +538,53 @@ bool mine(const ptr pointer) {
     return output;
 }
 
+enum human_readable_size { hrs_byte, hrs_kilobyte, hrs_megabyte, hrs_gigabyte };
+string human_readable_size_names[] = { "byte", "kilobyte", "megabyte", "gigabyte" };
+
+struct human_readable_size_layout {
+    enum human_readable_size size;
+    float                    count;
+};
+
+struct human_readable_size_layout calculate_human_readable_size(u8 size) {
+    if (size < 1000) return (struct human_readable_size_layout) { .count = size, .size = hrs_byte };
+    if (size < 1000000) {
+        return (struct human_readable_size_layout) { .count = (float) ((u8) size / 10) / 100, .size = hrs_kilobyte };
+    }
+    if (size < 1000000000) {
+        return (struct human_readable_size_layout) { .count = (float) ((u8) size / 10000) / 100, .size = hrs_megabyte };
+    }
+    return (struct human_readable_size_layout) { .count = (float) ((u8) size / 10000000) / 100, .size = hrs_gigabyte };
+}
+
+struct moonshine_float {
+    u8   number;
+    byte decimal;
+};
+
+fn_line void printer(struct human_readable_size_layout x, ctring attr_unused text) {
+    puts_float(x.count);
+    putchar(' ');
+    puts(human_readable_size_names[ x.size ]);
+    if (x.count != 1.0) putchar('s');
+}
+fn_line void printer(struct moonshine_float x, ctring attr_unused text) {
+    u8   value = x.number;
+    char buffer[ 20 ];
+    byte index   = 20;
+    byte index_1 = 0;
+
+    while (value > 0) {
+        buffer[ --index ] = value % 10;
+        value /= 10;
+    }
+
+    for (byte i = index; i < 20; i++) {
+        if (i == index && (20 - index) - x.decimal == 0) putchar('0');
+        if (index_1++ == (20 - index) - x.decimal) putchar('.');
+        putchar(buffer[ i ] + '0');
+    }
+}
 fn_line void printer(const char x, ctring attr_unused text) { putchar(x); }
 fn_line void printer(ctring x, ctring attr_unused text) { puts(x); }
 fn_line void printer(const int x, ctring text) {
@@ -500,6 +608,8 @@ fn_line void printer(const bool x, ctring attr_unused text) {
     }
 }
 fn_line void printer(var x, ctring attr_unused text) {
+    goto UNKNOWN;
+
     if (mine(x)) {
         if (mine(*(var *) x)) {
             // handle array
@@ -600,13 +710,6 @@ __attribute__((diagnose_as_builtin(__builtin_memmove, 1, 2, 3))) void *memmove(v
     return dest;
 }
 
-__attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var _dest, car _src, const unsigned long n) {
-    string dest = _dest;
-    ctring src  = _src;
-
-    for (u8 i = 0; i < n; i++) dest[ i ] = src[ i ];
-}
-
 #define SYS_getpid 39
 #define SYS_kill   62
 
@@ -685,6 +788,7 @@ struct PageTable {
     u8           size;
     u8           capacity;
     struct Page *pages;
+    u8           pointer_count;
 };
 
 #define AllocatedPointer(size, location)                                                                                       \
@@ -700,11 +804,9 @@ struct PageTable {
                      .pointers    = PageArray() })
 
 #define PageTable()                                                                                                            \
-    ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY) })
+    ((struct PageTable) { 0, BASE_PAGE_TABLE_CAPACITY, __bare_alloc(sizeof(struct Page) * BASE_PAGE_TABLE_CAPACITY), 0 })
 
 struct PageTable global_page_table;
-
-typedef unsigned int size_t;
 
 static void swap(char *a, char *b, size_t size) {
     while (size--) {
@@ -803,8 +905,6 @@ struct FreeBlock find_free_space(struct Page *page) {
     return max_free;
 }
 
-#define max(a, b) ((a) > (b) ? (a) : (b))
-
 void clean_pages() {
     for (u8 i = 0; i < global_page_table.size; i++) {
         auto page = &global_page_table.pages[ i ];
@@ -823,6 +923,9 @@ void clean_pages() {
     LEAVE_PAGE:;
     }
 }
+
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define min(a, b) ((a) < (b) ? (a) : (b))
 
 // TODO: Place page pointer and pointer size behind the allocated pointer
 
@@ -872,10 +975,10 @@ __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)
 
     END:
 
-        global_page_table.pages[ place ] = Page(max(len, 512));
+        global_page_table.pages[ place ] = Page(max(len, 4096));
         page                             = &global_page_table.pages[ place ];
         biggest_free_page                = place;
-        max_biggest_free.size            = max(len, 512);
+        max_biggest_free.size            = max(len, 4096);
         max_biggest_free.start           = 0;
     }
 
@@ -906,17 +1009,18 @@ ABYSS:;
     page->pointers.data[ pointer_place ]
         = (struct AllocatedPointer) { .size = len, .location = max_biggest_free.start, .allocated = true };
 
+    global_page_table.pointer_count++;
     return (var) new_location;
 }
 
-struct FoundPointer {
-    u8                       page_index;
-    u8                       allocation_size;
-    struct AllocatedPointer *pointer_ref;
-    struct Page             *page_ref;
-};
+enum GC_STATUS { GC_ALIVE, GC_DEAD };
 
-struct FoundPointer find_pointer(const var addr) {
+// TODO: find_pointer only handles absolute pointers, whilst mine() needs to handle forward-facing pointers as well, which have
+// been altered by pointer arithmetic.
+// TODO: Add safeguards to dismiss invalid pointers, fast (like the ones in the GC)
+
+// Finds a pointer's reference in the page table.
+fn_line struct FoundPointer find_pointer(const var addr, bool throw_on_error) {
     for (u8 i = 0; i < global_page_table.size; i++) {
         struct Page *page     = &global_page_table.pages[ i ];
         const u8     location = (u8) addr - (u8) page->start;
@@ -933,8 +1037,20 @@ struct FoundPointer find_pointer(const var addr) {
                 }
             }
 
-            if (!best_ptr->allocated) throw("Unallocated pointer? ", addr);
-            if (best_ptr == NULL) throw("Pointer for location does not exist in page");
+            if (best_ptr == NULL) {
+                if (!throw_on_error) {
+                    return (
+                        struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+                }
+                throw("Pointer for location does not exist in page");
+            }
+            if (!best_ptr->allocated) {
+                if (!throw_on_error) {
+                    return (
+                        struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+                }
+                throw("Unallocated pointer? ", addr);
+            }
 
             return (struct FoundPointer) {
                 .allocation_size = best_ptr->size, .pointer_ref = best_ptr, .page_ref = page, .page_index = i
@@ -942,14 +1058,20 @@ struct FoundPointer find_pointer(const var addr) {
         }
     }
 
+    if (!throw_on_error) {
+        return (struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+    }
     throw("Invalid pointer!");
 }
+
+fn_line struct FoundPointer find_pointer(const var addr) { return find_pointer(addr, true); }
 
 void unmap(const struct FoundPointer ptr, const var addr) {
     if (!ptr.pointer_ref->allocated) throw("unmap double-free for pointer ", addr);
 
     ptr.pointer_ref->allocated = false;
     ptr.page_ref->dirty        = true;
+    global_page_table.pointer_count--;
 }
 
 __attribute__((diagnose_as_builtin(__builtin_free, 1))) void release(const var addr) {
@@ -964,6 +1086,138 @@ __attribute__((diagnose_as_builtin(__builtin_realloc, 1, 2))) var remap(const va
     memcpy(new_ptr, ptr, found.allocation_size);
     unmap(found, ptr);
     return new_ptr;
+}
+
+u8 start_of_stack;
+
+// Basic Mark & Sweep garbage collector. Slow, use with caution.
+void collect_garbage(bool debug) {
+    u8 end_of_stack = (u8) &debug;
+
+    u8 start = min(start_of_stack, end_of_stack);
+    u8 end   = max(start_of_stack, end_of_stack);
+
+    struct GC_Ptr {
+        enum GC_STATUS status;
+        var            ptr;
+        u8             size;
+    } marks[ global_page_table.pointer_count ];
+    memset(marks, 0, global_page_table.pointer_count * sizeof(typeof(marks[ 0 ])));
+    u8 marks_index = 0;
+
+    struct GC_Page_Range {
+        var start_location;
+        var end_location;
+        u8  marks_position;
+        u8  marks_end;
+    } page_ranges[ global_page_table.size ];
+    u8 ranges_index = 0;
+
+    u8 min_page_start = ~(u8) NULL;
+    u8 max_page_end   = 0;
+
+    for (u8 page_index = 0; page_index < global_page_table.size; page_index++) {
+        auto page = global_page_table.pages[ page_index ];
+
+        if (page.start == NULL) continue;
+
+        if ((u8) page.start < min_page_start) min_page_start = (u8) page.start;
+        if ((u8) (page.start + page.size) > max_page_end) max_page_end = (u8) page.start + page.size;
+
+        u8 marks_start = marks_index;
+
+        for (u8 ptr_index = 0; ptr_index < page.pointers.size; ptr_index++) {
+            auto ptr = page.pointers.data[ ptr_index ];
+            if (!ptr.allocated) continue;
+
+            marks[ marks_index++ ] = (struct GC_Ptr) { .ptr = page.start + ptr.location, .size = ptr.size, .status = GC_DEAD };
+        }
+
+        page_ranges[ ranges_index++ ] = (struct GC_Page_Range) { .start_location = page.start,
+                                                                 .end_location   = page.start + page.size,
+                                                                 .marks_position = marks_start,
+                                                                 .marks_end      = marks_index };
+    }
+
+    // Check stack values for references
+    for (u8 st = start; st < end; st++) {
+        auto ptr   = (var) st;
+        auto value = *(u8 *) ptr;
+
+        if (value < min_page_start || value > max_page_end) continue;
+
+        // Value is in range of page data
+        for (u8 page_idx = 0; page_idx < ranges_index; page_idx++) {
+            auto page = page_ranges[ page_idx ];
+            if (value < (u8) page.start_location || value > (u8) page.end_location) continue;
+
+            // Value is in this page!
+            for (u8 marks_idx = page.marks_position; marks_idx <= page.marks_end; marks_idx++) {
+                auto mark = marks[ marks_idx ];
+
+                if (((var) value < mark.ptr) || ((var) value >= (mark.ptr + mark.size))) continue;
+                // We found the pointer! Woohoo!
+                marks[ marks_idx ].status = GC_ALIVE;
+                st += sizeof(var) - 1; // Increment the stack pointer, since we've already found a pointer there
+                goto TOP_LEVEL_CONTINUE;
+            }
+        }
+    TOP_LEVEL_CONTINUE:;
+    }
+
+    // Iterate over living pointers, and mark other living pointers inside, until we run out of newly marked pointers
+    bool all_marked = false;
+
+    while (!all_marked) {
+        all_marked = true;
+        for (u8 ptr_idx = 0; ptr_idx < marks_index; ptr_idx++) {
+            if (marks[ ptr_idx ].status == GC_DEAD) continue;
+
+            // Pointer is alive. Get value.
+            auto ptr = marks[ ptr_idx ];
+
+            for (u8 ptr_var = 0; ptr_var < ptr.size; ptr_var++) {
+                u8 *pointer = ptr.ptr + ptr_var;
+                u8  value   = *(u8 *) pointer;
+
+                if (value < min_page_start || value > max_page_end) continue;
+
+                // Value is in range of page data
+                for (u8 page_idx = 0; page_idx < ranges_index; page_idx++) {
+                    auto page = page_ranges[ page_idx ];
+                    if (value < (u8) page.start_location || value > (u8) page.end_location) continue;
+
+                    // Value is in this page!
+                    for (u8 marks_idx = page.marks_position; marks_idx < marks_index; marks_idx++) {
+                        auto mark = marks[ marks_idx ];
+
+                        if ((var) value < mark.ptr || (var) value >= mark.ptr + mark.size) continue;
+                        // We found the pointer! Woohoo!
+                        if (mark.status != GC_ALIVE) {
+                            marks[ marks_idx ].status = GC_ALIVE;
+                            all_marked                = false;
+                        }
+                        ptr_var += sizeof(var) - 1; // Increment the pointer value, since we've already found a pointer there
+                        goto NEXT_CONTINUE;
+                    }
+                }
+
+            NEXT_CONTINUE:;
+            }
+        }
+    }
+
+    u8 total_saved = 0;
+
+    for (u8 m = 0; m < marks_index; m++) {
+        auto mark = marks[ m ];
+        if (mark.status == GC_DEAD) {
+            release(mark.ptr);
+            total_saved += mark.size;
+        }
+    }
+
+    if (debug) println("Saved ", calculate_human_readable_size(total_saved), " of memory");
 }
 
 #define de(obj) (*(obj))
@@ -1624,6 +1878,8 @@ extern void __llvm_profile_set_filename(const char *name);
 #endif
 
 [[noreturn]] __attribute__((used)) void __moonshine_start(int argc, string *argv, string *envp) {
+    start_of_stack = (u8) &argc;
+
 #ifdef __MOONSHINE_PROFILER
     static const char profile_filename[] __attribute__((used)) = "profile.profraw";
     __llvm_profile_reset_counters();
