@@ -117,16 +117,16 @@ const bool false = 0;
 #define new2(type, count)   (__new_array(#type, sizeof(type), count))
 #define free_array(array)                                                                                                      \
     ({                                                                                                                         \
-        release(cast_ptr(*array, byte, -addon_size));                                                                                                   \
+        release(cast_ptr(*array, byte, -addon_size));                                                                          \
         release(array);                                                                                                        \
     })
 
 #define fill(type, ...)                                                                                                        \
     ({                                                                                                                         \
         type __fill_values[] = { __VA_ARGS__ };                                                                                \
-        u4   __fill_count    = sizeof(__fill_values) / sizeof(type);                                                           \
+        u8   __fill_count    = sizeof(__fill_values) / sizeof(type);                                                           \
         auto __fill_arr      = new (type, __fill_count);                                                                       \
-        for (u4 __i = 0; __i < __fill_count; __i++) { de(__fill_arr)[ __i ] = __fill_values[ __i ]; }                          \
+        for (u8 __i = 0; __i < __fill_count; __i++) { de(__fill_arr)[ __i ] = __fill_values[ __i ]; }                          \
         __fill_arr;                                                                                                            \
     })
 
@@ -136,9 +136,11 @@ const bool false = 0;
         fill(typeof(value), value);                                                                                            \
     })
 
-#define count(array) ((u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 1))
+#define capacity(array)                                                                                                        \
+    ((u8) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u8, 2))
+#define count(array) ((u8) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u8, 1))
 #define element_size(array)                                                                                                    \
-    (u4) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u4, 0)
+    (u8) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u8, 0)
 #define last(array)  ((array)[ 0 ][ count(array) ])
 #define first(array) get(array, 0)
 #define safe_push(type, array, ptr, ...)                                                                                       \
@@ -148,7 +150,7 @@ const bool false = 0;
         unsafe_push((var *) _array, (var) & (_ptr), sizeof(type));                                                             \
     })
 #define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
-void unsafe_push(var *array, const var ptr, const u4 ptr_size);
+void unsafe_push(var *array, const var ptr, const u8 ptr_size);
 
 int errno = 0;
 
@@ -313,7 +315,7 @@ void puts_static_ptr(car value, u8 size) { puts_size(*(string *) value, size); }
         }                                                                                                                      \
     });
 
-const var *__new_array(const string type_name, const u4 type_size, const u4 count);
+const var *__new_array(const string type_name, const u8 type_size, const u8 count);
 #define format(...)                                                                                                            \
     ({                                                                                                                         \
         auto format_buffer = new (char);                                                                                       \
@@ -467,10 +469,11 @@ __attribute__((diagnose_as_builtin(__builtin_strlen, 1))) unsigned long strlen(c
 #define cast_index(arr, type, index) ((type *) arr)[ index ]
 #define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
 
-#define align_value(value) ((u8) ((((value) + 15) & ~15ULL)))
+#define align_value(value)          ((u8) ((((value) + 15) & ~15ULL)))
+#define align_custom(offset, value) ((u8) ((((value) + offset) & ~cat(offset, ULL))))
 const int   magic_number = 0xB00E;
 typedef int magic_type;
-const int   __addon_size = 2 * sizeof(u4) + sizeof(string) + sizeof(magic_type);
+const int   __addon_size = 3 * sizeof(u8) + sizeof(string) + sizeof(magic_type);
 const int   addon_size   = align_value(__addon_size);
 const int   spacer_size  = addon_size - __addon_size;
 
@@ -668,7 +671,7 @@ fn_line void formatter(t(char) buf, var x, ctring attr_unused text) {
 
             array = cast_ptr(array, string, 1);
 
-            u4 element_count = cast_index(array, u4, 1);
+            u8 element_count = cast_index(array, u8, 1);
 
             join_text(buf, "<(");
             join_static_buf((var) buf, array_type, strlen(array_type));
@@ -1264,7 +1267,7 @@ void collect_garbage(bool debug) {
 
 #define de(obj) (*(obj))
 
-const var *__new_array(const string type_name, const u4 type_size, const u4 count) [[clang::allocating]] {
+const var *__new_array(const string type_name, const u8 type_size, const u8 count) [[clang::allocating]] {
     // string name, and one place for the special code
     const u8 size = type_size * count + addon_size;
 
@@ -1277,8 +1280,9 @@ const var *__new_array(const string type_name, const u4 type_size, const u4 coun
     cast_index(ptr, ctring, 0) = type_name;
     ptr                        = cast_ptr(ptr, string, 1);
 
-    cast_index(ptr, u4, 0) = type_size;
-    cast_index(ptr, u4, 1) = count;
+    cast_index(ptr, u8, 0) = type_size;
+    cast_index(ptr, u8, 1) = count;
+    cast_index(ptr, u8, 2) = align_custom(63, count); // Align the capacity to 64
 
     var *holder = alloc(sizeof(var));
 
@@ -1294,15 +1298,17 @@ const var *__new_array(const string type_name, const u4 type_size, const u4 coun
 
 flatten void unsafe_extend(
     var      *array_ref,
-    const var array_from_u4,
+    const var array_from_u8,
     const var array_base,
-    const u4  element_count,
-    const u4  element_size,
-    const u4  offset) [[clang::allocating]] {
-    cast_index(array_from_u4, u4, 1) += offset;
-    const var    new_base    = remap(array_base, addon_size + element_size * (element_count + offset));
-    const string array_place = &((string) new_base)[ addon_size ];
-    *array_ref               = (var) array_place;
+    const u8  element_count,
+    const u8  element_size,
+    const u8  offset) [[clang::allocating]] {
+    cast_index(array_from_u8, u8, 1) += offset;
+    if (element_count + offset >= capacity(array_ref)) {
+        const var    new_base    = remap(array_base, addon_size + element_size * align_custom(63, element_count + offset + 1));
+        const string array_place = &((string) new_base)[ addon_size ];
+        *array_ref               = (var) array_place;
+    }
 }
 
 void extend(var *array, u8 count) [[clang::allocating]] {
@@ -1316,13 +1322,14 @@ void extend(var *array, u8 count) [[clang::allocating]] {
     array_wrap = cast_ptr(array_wrap, magic_type, 1);
     array_wrap = cast_ptr(array_wrap, string, 1);
 
-    const u4 element_count = cast_index(array_wrap, u4, 1);
-    const u4 element_size  = cast_index(array_wrap, u4, 0);
+    const u8 element_size  = cast_index(array_wrap, u8, 0);
+    const u8 element_count = cast_index(array_wrap, u8, 1);
+    // const u8 capacity      = cast_index(array_wrap, u8, 2);
 
-    unsafe_extend(array, array_wrap, main_wrap, element_count, element_size, count);
+    unsafe_extend(array, array_wrap, main_wrap, align_custom(63, element_count + count + 1), element_size, count);
 }
 
-void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocating]] {
+void unsafe_push(var *array, const var ptr, const u8 ptr_size) [[clang::allocating]] {
     const var main_wrap  = cast_ptr(*array, byte, -addon_size);
     var       array_wrap = main_wrap;
 
@@ -1334,8 +1341,8 @@ void unsafe_push(var *array, const var ptr, const u4 ptr_size) [[clang::allocati
     string type_name = array_wrap;
     array_wrap       = cast_ptr(array_wrap, string, 1);
 
-    const u4 element_count = cast_index(array_wrap, u4, 1);
-    const u4 element_size  = cast_index(array_wrap, u4, 0);
+    const u8 element_count = cast_index(array_wrap, u8, 1);
+    const u8 element_size  = cast_index(array_wrap, u8, 0);
 
     if (unlikely(element_size != ptr_size && ptr_size != 0)) {
         throw(
@@ -1363,8 +1370,8 @@ void join_static_buf(var *array, string ptr, u8 size) {
     array_wrap = cast_ptr(array_wrap, magic_type, 1);
     array_wrap = cast_ptr(array_wrap, string, 1);
 
-    const u4 element_count = cast_index(array_wrap, u4, 1);
-    const u4 element_size  = cast_index(array_wrap, u4, 0);
+    const u8 element_count = cast_index(array_wrap, u8, 1);
+    const u8 element_size  = cast_index(array_wrap, u8, 0);
 
     unsafe_extend(array, array_wrap, main_wrap, element_count, element_size, size);
     for (u8 i = 0; i < size; i++) ((t(char)) array)[ 0 ][ element_count + i ] = ptr[ i ];
@@ -1373,7 +1380,7 @@ void join_static_buf(var *array, string ptr, u8 size) {
 void join_static_buf_buddy(var *array, string *ptr, u8 size) { join_static_buf(array, ptr[ 0 ], size); }
 
 var return_item(var **arr, i8 index) {
-    if (unlikely(index >= count(arr))) {
+    if (unlikely((u8) index >= count(arr))) {
         throw("Requested index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
     }
     if (unlikely(index < 0)) throw("Cannot access negative offset ", index, " in array!");
@@ -1384,7 +1391,7 @@ var return_item(var **arr, i8 index) {
 var return_item_unbound(var **arr, i8 index) { return &((byte **) arr)[ 0 ][ index * element_size(arr) ]; }
 
 void set_item(var **arr, i8 index, var value) {
-    if (unlikely(index >= count(arr))) {
+    if (unlikely((u8) index >= count(arr))) {
         throw("Target index in array (", index, ") exceeds the size of the array! (", count(arr), ")");
     }
     if (unlikely(index < 0)) throw("Cannot write to negative offset ", index, " in array!");
