@@ -10,9 +10,10 @@ const enum {
     test_array,
     test_hashtable_2,
     test_garbage_collector,
-    test_minor_features
+    test_minor_features,
+    test_garbage_collector_2
 } current_test
-    = test_minor_features;
+    = test_garbage_collector_2;
 
 int main() {
     if (current_test == test_alloc) {
@@ -94,6 +95,9 @@ int main() {
         println(x);
         // Normal float enhancement
         println(12.34);
+    } else if (current_test == test_garbage_collector_2) {
+        for (u8 i = 0; i < 9999; i++) new (int, 9999);
+        collect_garbage(true);
     }
 
     else {

@@ -121,20 +121,16 @@ const bool false = 0;
         release(array);                                                                                                        \
     })
 
-#define fill(type, ...)                                                                                                        \
+#define fill(a, ...)                                                                                                           \
     ({                                                                                                                         \
-        type __fill_values[] = { __VA_ARGS__ };                                                                                \
-        u8   __fill_count    = sizeof(__fill_values) / sizeof(type);                                                           \
-        auto __fill_arr      = new (type, __fill_count);                                                                       \
+        typeof(a) __fill_values[] = { a __VA_OPT__(, ) __VA_ARGS__ };                                                          \
+        u8        __fill_count    = sizeof(__fill_values) / sizeof(__fill_values[ 0 ]);                                        \
+        auto      __fill_arr      = new (typeof(a), __fill_count);                                                             \
         for (u8 __i = 0; __i < __fill_count; __i++) { de(__fill_arr)[ __i ] = __fill_values[ __i ]; }                          \
         __fill_arr;                                                                                                            \
     })
 
-#define single(...)                                                                                                            \
-    ({                                                                                                                         \
-        auto value = __VA_ARGS__;                                                                                              \
-        fill(typeof(value), value);                                                                                            \
-    })
+#define single(...) fill(__VA_ARGS__)
 
 #define capacity(array)                                                                                                        \
     ((u8) cast_index(cast_ptr(cast_ptr(cast_ptr(*array, byte, -addon_size), magic_type, 1), string, 1), u8, 2))
@@ -157,6 +153,7 @@ int errno = 0;
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#define unless(x) while (!(x))
 #define switch_item(value, ...)                                                                                                \
     case value: {                                                                                                              \
         __VA_ARGS__;                                                                                                           \
@@ -238,15 +235,6 @@ int errno = 0;
         write((char *) &y, 1, stdout);                                                                                         \
     })
 
-#define stdin  0
-#define stdout 1
-#define stderr 2
-
-#define BUFFER_SIZE 4096
-
-static char buffer[ BUFFER_SIZE ];
-static int  buffer_index = 0;
-
 __attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var _dest, car _src, const unsigned long n) {
     string dest = _dest;
     ctring src  = _src;
@@ -254,43 +242,49 @@ __attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var 
     for (u8 i = 0; i < n; i++) dest[ i ] = src[ i ];
 }
 
-int flush(int fd);
+#define stdin  0
+#define stdout 1
+#define stderr 2
+
+#define BUFFER_SIZE 4096
+
+char stdout_buffer[ BUFFER_SIZE ];
+int  stdout_buffer_index = 0;
 
 int flush(int fd) {
-    if (buffer_index == 0) { return 0; }
+    if (stdout_buffer_index == 0) return 0;
 
-    int result   = syscall4(1, fd, buffer, buffer_index);
-    buffer_index = 0;
-    return result;
+    int total_written = 0;
+    while (total_written < stdout_buffer_index) {
+        int result = syscall4(1, fd, stdout_buffer + total_written, stdout_buffer_index - total_written);
+        if (result < 0) return -1;
+        total_written += result;
+    }
+    stdout_buffer_index = 0;
+    return total_written;
 }
 
 int write(const char *ptr, const int size, const int fd) {
-    int total_written = 0;
-    for (int i = 0; i < size; i++) {
-        if (ptr[ i ] == 0) continue;
+    if (size <= 0) return 0;
 
-        if (buffer_index >= BUFFER_SIZE || ptr[ i ] == '\n') {
-            int result = flush(fd);
+    if (fd == 1) {
+        for (int i = 0; i < size; i++) {
+            stdout_buffer[ stdout_buffer_index++ ] = ptr[ i ];
+            if (stdout_buffer_index == BUFFER_SIZE || ptr[ i ] == '\n') {
+                int result = flush(fd);
+                if (result < 0) return -1;
+            }
+        }
+        return size;
+    } else {
+        int total_written = 0;
+        while (total_written < size) {
+            int result = syscall4(1, fd, (void *) (ptr + total_written), size - total_written);
             if (result < 0) { return -1; }
             total_written += result;
         }
-
-        buffer[ buffer_index++ ] = ptr[ i ];
-
-        if (ptr[ i ] == '\n') {
-            int result = flush(fd);
-            if (result < 0) { return -1; }
-            total_written += result;
-        }
+        return total_written;
     }
-
-    if (buffer_index > 0) {
-        int result = flush(fd);
-        if (result < 0) { return -1; }
-        total_written += result;
-    }
-
-    return total_written;
 }
 
 void release(const var addr);
@@ -309,7 +303,7 @@ void puts_static_ptr(car value, u8 size) { puts_size(*(string *) value, size); }
     ({                                                                                                                         \
         if (#value[ 0 ] == '"') {                                                                                              \
             auto obj = value;                                                                                                  \
-            join_static_buf_buddy((var *) extra, (string *) &obj, sizeof(value));                                              \
+            join_static_buf_buddy((var *) extra, (string *) &obj, sizeof(value) - 1);                                              \
         } else {                                                                                                               \
             formatter(extra, value, #value);                                                                                   \
         }                                                                                                                      \
@@ -343,23 +337,21 @@ void join_static_buf(var *array, string ptr, u8 size);
     })
 
 void puts_number(t(char) buf, const int64_t number, const bool is_signed) {
-    uint64_t n;
+    char    temp[ 20 ];
+    int     len = 0;
+    int64_t n   = number;
+
     if (is_signed && number < 0) {
         push(buf, '-');
-        n = (uint64_t) (~number) + 1;
-    } else {
-        n = (uint64_t) number;
+        n = -n;
     }
 
-    char buffer[ 20 ];
-    int  pos = 20;
-
     do {
-        buffer[ --pos ] = '0' + (n % 10);
+        temp[ len++ ] = '0' + (n % 10);
         n /= 10;
-    } while (n != 0);
+    } while (n > 0);
 
-    join_static_buf((var *) buf, &buffer[ pos ], 20 - pos);
+    for (int i = len - 1; i >= 0; i--) push(buf, temp[ i ]);
 }
 
 int sign_bit(float f) {
@@ -609,11 +601,11 @@ struct moonshine_float {
 
 void join_static_buf_buddy(var *buf, string *ptr, u8 size);
 
-fn_line void formatter(t(char) buf, struct human_readable_size_layout x, ctring attr_unused text) {
+void formatter(t(char) buf, struct human_readable_size_layout x, ctring attr_unused text) {
     puts_float(buf, x.count);
     push(buf, ' ');
     join_static_buf((var) buf, human_readable_size_names[ x.size ], strlen(human_readable_size_names[ x.size ]));
-    if (x.count != 1.0) putchar('s');
+    if (x.count != 1.0) push(buf, 's');
 }
 fn_line void formatter(t(char) buf, struct moonshine_float x, ctring attr_unused text) {
     u8   value = x.number;
@@ -636,8 +628,7 @@ fn_line void formatter(t(char) buf, const char x, ctring attr_unused text) { pus
 fn_line void formatter(t(char) buf, ctring x, ctring attr_unused text) { join_static_buf((var) buf, (string) x, strlen(x)); }
 fn_line void formatter(t(char) buf, const int x, ctring text) {
     if (text[ 0 ] == '\'') push(buf, x);
-    else
-        puts_number(buf, x, 1);
+    else { puts_number(buf, x, 1); }
 }
 fn_line void formatter(t(char) buf, const long x, ctring attr_unused text) { puts_number(buf, x, true); }
 fn_line void formatter(t(char) buf, const unsigned long x, ctring attr_unused text) { puts_number(buf, x, false); }
@@ -1213,7 +1204,7 @@ void collect_garbage(bool debug) {
     // Iterate over living pointers, and mark other living pointers inside, until we run out of newly marked pointers
     bool all_marked = false;
 
-    while (!all_marked) {
+    unless(all_marked) {
         all_marked = true;
         for (u8 ptr_idx = 0; ptr_idx < marks_index; ptr_idx++) {
             if (marks[ ptr_idx ].status == GC_DEAD) continue;
@@ -1368,10 +1359,12 @@ void join_static_buf(var *array, string ptr, u8 size) {
     array_wrap = cast_ptr(array_wrap, string, 1);
 
     const u8 element_count = cast_index(array_wrap, u8, 1);
-    const u8 element_size  = cast_index(array_wrap, u8, 0);
 
-    unsafe_extend(array, array_wrap, main_wrap, element_count, element_size, size);
+    if (element_count + size > capacity(array)) extend(array, size);
+
     for (u8 i = 0; i < size; i++) ((t(char)) array)[ 0 ][ element_count + i ] = ptr[ i ];
+
+    cast_index(array_wrap, u8, 1) += size;
 }
 
 void join_static_buf_buddy(var *array, string *ptr, u8 size) { join_static_buf(array, ptr[ 0 ], size); }
