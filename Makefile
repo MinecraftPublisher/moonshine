@@ -11,7 +11,7 @@ m4:
 	m4 moonshine.m4 > moonshine.m4.h
 
 c:
-	clang main.c -o out.bin $(FLAGS)
+	clang main.c -o out.bin $(FLAGS) -O3
 
 test:
 	./out.bin

@@ -147,6 +147,8 @@ const bool false = 0;
     })
 #define push(array, ptr, ...) safe_push(typeof((array)[ 0 ][ 0 ]), array, ptr __VA_OPT__(, ) __VA_ARGS__)
 void unsafe_push(var *array, const var ptr, const u8 ptr_size);
+#define cast_index(arr, type, index) ((type *) arr)[ index ]
+#define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
 
 int errno = 0;
 
@@ -303,7 +305,7 @@ void puts_static_ptr(car value, u8 size) { puts_size(*(string *) value, size); }
     ({                                                                                                                         \
         if (#value[ 0 ] == '"') {                                                                                              \
             auto obj = value;                                                                                                  \
-            join_static_buf_buddy((var *) extra, (string *) &obj, sizeof(value) - 1);                                              \
+            join_static_buf_buddy((var *) extra, (string *) &obj, sizeof(value) - 1);                                          \
         } else {                                                                                                               \
             formatter(extra, value, #value);                                                                                   \
         }                                                                                                                      \
@@ -317,16 +319,32 @@ const var *__new_array(const string type_name, const u8 type_size, const u8 coun
         format_buffer;                                                                                                         \
     })
 
+#define align_value(value)          ((u8) ((((value) + 15) & ~15ULL)))
+#define align_custom(offset, value) ((u8) ((((value) + offset) & ~cat(offset, ULL))))
+const int   magic_number = 0xB00E;
+typedef int magic_type;
+const int   __addon_size = 3 * sizeof(u8) + sizeof(string) + sizeof(magic_type);
+const int   addon_size   = align_value(__addon_size);
+const int   spacer_size  = addon_size - __addon_size;
+
+void null_terminate(t(char) buf) {
+    u8 cnt = count(buf);
+    push(buf, '\0');
+    cast_index(cast_ptr(*buf, byte, -addon_size), magic_type, 1) = cnt;
+}
+
 #define print(...)                                                                                                             \
     ({                                                                                                                         \
         auto buf = format(__VA_ARGS__);                                                                                        \
-        puts(buf[ 0 ]);                                                                                                        \
+        null_terminate(buf);                                                                                                   \
+        puts_size(buf[ 0 ], count(buf));                                                                                       \
         free_array(buf);                                                                                                       \
     })
 #define println(...)                                                                                                           \
     ({                                                                                                                         \
         print(__VA_ARGS__);                                                                                                    \
         putchar('\n');                                                                                                         \
+        flush(stdout);                                                                                                         \
     })
 
 void join_static_buf(var *array, string ptr, u8 size);
@@ -335,6 +353,24 @@ void join_static_buf(var *array, string ptr, u8 size);
         char x[] = "" txt;                                                                                                     \
         join_static_buf((var *) buf, x, sizeof(x));                                                                            \
     })
+
+void writeout_number(const int64_t number, const bool is_signed) {
+    char    temp[ 20 ];
+    int     len = 0;
+    int64_t n   = number;
+
+    if (is_signed && number < 0) {
+        putchar('-');
+        n = -n;
+    }
+
+    do {
+        temp[ len++ ] = '0' + (n % 10);
+        n /= 10;
+    } while (n > 0);
+
+    for (int i = len - 1; i >= 0; i--) putchar(temp[ i ]);
+}
 
 void puts_number(t(char) buf, const int64_t number, const bool is_signed) {
     char    temp[ 20 ];
@@ -458,17 +494,6 @@ __attribute__((diagnose_as_builtin(__builtin_strlen, 1))) unsigned long strlen(c
     return len;
 }
 
-#define cast_index(arr, type, index) ((type *) arr)[ index ]
-#define cast_ptr(arr, type, index)   (&cast_index(arr, type, index))
-
-#define align_value(value)          ((u8) ((((value) + 15) & ~15ULL)))
-#define align_custom(offset, value) ((u8) ((((value) + offset) & ~cat(offset, ULL))))
-const int   magic_number = 0xB00E;
-typedef int magic_type;
-const int   __addon_size = 3 * sizeof(u8) + sizeof(string) + sizeof(magic_type);
-const int   addon_size   = align_value(__addon_size);
-const int   spacer_size  = addon_size - __addon_size;
-
 #define MAP_SHARED    0x01
 #define MAP_PRIVATE   0x02
 #define PROT_READ     0x1
@@ -546,34 +571,12 @@ struct FoundPointer {
     i8                       allocation_size;
     struct AllocatedPointer *pointer_ref;
     struct Page             *page_ref;
+    enum { ptr_owner_mmap, ptr_owner_sbrk } owner;
 };
 
 fn_line struct FoundPointer find_pointer(const var addr, bool throw_on_error);
 
-// TODO: Replace this with a pointer finder by borrowing logic from the GC
-
-// Check if the current process tree owns a pointer. Expensive, do not use
-// sparingly.
-bool mine(const ptr pointer) {
-    // Old approach, slow
-    bool *glob_var = __bare_alloc(sizeof(bool));
-
-    (void) demon({
-        *glob_var = 0;
-        byte *x   = pointer;
-        byte  y   = *x;
-        (void) y;
-        __asm__ volatile("mov %[ptr], %%edi" : : [ptr] "m"(*(void **) pointer) : "edi");
-        *glob_var = 1;
-    });
-
-    wait(NULL);
-    bool output = *glob_var;
-
-    __bare_munmap(glob_var, sizeof(bool));
-
-    return output;
-}
+bool mine(const ptr pointer);
 
 enum human_readable_size { hrs_byte, hrs_kilobyte, hrs_megabyte, hrs_gigabyte };
 string human_readable_size_names[] = { "byte", "kilobyte", "megabyte", "gigabyte" };
@@ -756,21 +759,32 @@ __attribute__((diagnose_as_builtin(__builtin_memmove, 1, 2, 3))) void *memmove(v
 #define kill(pid, sig) syscall3(SYS_kill, pid, sig)
 #define raise(sig)     kill(getpid(), sig)
 
-// TODO: Setting a breakpoint multiple times can fuck with the stdout buffer, somehow
 #define breakpoint(str)                                                                                                        \
     ({                                                                                                                         \
+        flush(stdout);                                                                                                         \
+        (void) raise(SIGTRAP);                                                                                                 \
         const string wowie = "" str;                                                                                           \
         (void) wowie;                                                                                                          \
-        (void) raise(SIGTRAP);                                                                                                 \
     })
 
 #define fg_ansi(r, g, b) "\e[38;2;" #r ";" #g ";" #b "m"
 #define bg_ansi(r, g, b) "\e[48;2;" #r ";" #g ";" #b "m"
 #define no_ansi()        "\e[0m"
 
+#define __MOONSHINE_EXCEPTION_DEBUGGER
+string global_throw_message_format = NULL;
 #ifdef __MOONSHINE_EXCEPTION_DEBUGGER
     #define throw(...)                                                                                                         \
         ({                                                                                                                     \
+            if (global_throw_message_format != NULL) {                                                                         \
+                puts(fg_ansi(255, 90, 90));                                                                                    \
+                puts("Internal moonshine exception: ");                                                                        \
+                puts(global_throw_message_format);                                                                             \
+                puts(no_ansi());                                                                                               \
+                putchar('\n');                                                                                                 \
+                (void) raise(SIGILL);                                                                                          \
+            }                                                                                                                  \
+            global_throw_message_format = #__VA_ARGS__;                                                                        \
             println(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                   \
             puts_static(fg_ansi(235, 235, 50) "The following is an exception-related crash: " no_ansi());                      \
             (void) raise(SIGILL);                                                                                              \
@@ -780,6 +794,15 @@ __attribute__((diagnose_as_builtin(__builtin_memmove, 1, 2, 3))) void *memmove(v
 #else
     #define throw(...)                                                                                                         \
         ({                                                                                                                     \
+            if (global_throw_message_format != NULL) {                                                                         \
+                puts(fg_ansi(255, 90, 90));                                                                                    \
+                puts("Internal moonshine exception: ");                                                                        \
+                puts(global_throw_message_format);                                                                             \
+                puts(no_ansi());                                                                                               \
+                putchar('\n');                                                                                                 \
+                exit(1);                                                                                                       \
+            }                                                                                                                  \
+            global_throw_message_format = #__VA_ARGS__;                                                                        \
             println(fg_ansi(255, 90, 90) "Error: ", __VA_ARGS__, no_ansi());                                                   \
             exit(1);                                                                                                           \
             __builtin_unreachable();                                                                                           \
@@ -881,7 +904,7 @@ static int compare_locations(const void *a, const void *b) {
     return 0;
 }
 
-struct FreeBlock find_free_space(struct Page *page) {
+struct FreeBlock mmapocator_find_free_space(struct Page *page) {
     if (!page->dirty) return page->last_result;
 
     struct FreeBlock max_free = { 0, 0 };
@@ -941,7 +964,7 @@ struct FreeBlock find_free_space(struct Page *page) {
     return max_free;
 }
 
-void clean_pages() {
+void mmapocator_clean_pages() {
     for (u8 i = 0; i < global_page_table.size; i++) {
         auto page = &global_page_table.pages[ i ];
 
@@ -965,12 +988,13 @@ void clean_pages() {
 
 // TODO: Place page pointer and pointer size behind the allocated pointer
 
-__attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var alloc(const u8 len)
+__attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var mmapocator_alloc(const u8 len)
     [[clang::allocating]] {
     static int alloc_count = 0;
-    if (unlikely(alloc_count++ == 1024)) {
+    if (unlikely(alloc_count++ == 4096)) {
         alloc_count = 0;
-        clean_pages();
+        // mmapocator_collect_garbage(false);
+        mmapocator_clean_pages();
     }
 
     i8               biggest_free_page = -1;
@@ -979,7 +1003,7 @@ __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)
 
     for (u8 i = 0; i < global_page_table.size; i++) {
         if (global_page_table.pages[ i ].start == NULL) continue;
-        struct FreeBlock biggest_free = find_free_space(&global_page_table.pages[ i ]);
+        struct FreeBlock biggest_free = mmapocator_find_free_space(&global_page_table.pages[ i ]);
 
         if (biggest_free.size <= max_biggest_free.size) continue;
         max_biggest_free  = biggest_free;
@@ -1049,14 +1073,11 @@ ABYSS:;
     return (var) new_location;
 }
 
-enum GC_STATUS { GC_ALIVE, GC_DEAD };
-
 // TODO: find_pointer only handles absolute pointers, whilst mine() needs to handle forward-facing pointers as well, which have
 // been altered by pointer arithmetic.
-// TODO: Add safeguards to dismiss invalid pointers, fast (like the ones in the GC)
 
 // Finds a pointer's reference in the page table.
-fn_line struct FoundPointer find_pointer(const var addr, bool throw_on_error) {
+struct FoundPointer mmapocator_find_pointer(const var addr, bool throw_on_error) {
     for (u8 i = 0; i < global_page_table.size; i++) {
         struct Page *page     = &global_page_table.pages[ i ];
         const u8     location = (u8) addr - (u8) page->start;
@@ -1075,34 +1096,38 @@ fn_line struct FoundPointer find_pointer(const var addr, bool throw_on_error) {
 
             if (best_ptr == NULL) {
                 if (!throw_on_error) {
-                    return (
-                        struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+                    return (struct FoundPointer) {
+                        .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1, .owner = ptr_owner_mmap
+                    };
                 }
                 throw("Pointer for location does not exist in page");
             }
             if (!best_ptr->allocated) {
                 if (!throw_on_error) {
-                    return (
-                        struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+                    return (struct FoundPointer) {
+                        .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1, .owner = ptr_owner_mmap
+                    };
                 }
                 throw("Unallocated pointer? ", addr);
             }
 
-            return (struct FoundPointer) {
-                .allocation_size = best_ptr->size, .pointer_ref = best_ptr, .page_ref = page, .page_index = i
-            };
+            return (struct FoundPointer) { .allocation_size = best_ptr->size,
+                                           .pointer_ref     = best_ptr,
+                                           .page_ref        = page,
+                                           .page_index      = i,
+                                           .owner           = ptr_owner_mmap };
         }
     }
 
     if (!throw_on_error) {
-        return (struct FoundPointer) { .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1 };
+        return (struct FoundPointer) {
+            .page_index = -1, .page_ref = NULL, .pointer_ref = NULL, .allocation_size = -1, .owner = ptr_owner_mmap
+        };
     }
     throw("Invalid pointer!");
 }
 
-fn_line struct FoundPointer find_pointer(const var addr) { return find_pointer(addr, true); }
-
-void unmap(const struct FoundPointer ptr, const var addr) {
+void mmapocator_unmap(const struct FoundPointer ptr, const var addr) {
     if (!ptr.pointer_ref->allocated) throw("unmap double-free for pointer ", addr);
 
     ptr.pointer_ref->allocated = false;
@@ -1110,18 +1135,244 @@ void unmap(const struct FoundPointer ptr, const var addr) {
     global_page_table.pointer_count--;
 }
 
-__attribute__((diagnose_as_builtin(__builtin_free, 1))) void release(const var addr) {
+__attribute__((diagnose_as_builtin(__builtin_free, 1))) void mmapocator_release(const var addr) {
     if (addr == 0) return;
-    unmap(find_pointer(addr), addr);
+    mmapocator_unmap(mmapocator_find_pointer(addr, true), addr);
 }
+
+#define SYS_brk 12
+var current_break = NULL;
+var first_break   = NULL;
+
+typedef __PTRDIFF_TYPE__ ptrdiff_t;
+
+// TODO: Prevent sbrk from requesting more brk space if the value is less than an increment of 1024.
+
+const u8        sbrk_increment = 4096;
+fn_overload var sbrk(u8 increment) {
+    if (current_break == NULL) {
+        current_break = (var) syscall2(SYS_brk, 0);
+        if (current_break == (var) -1) return (var) -1;
+    }
+
+    if (increment == 0) return current_break;
+    if (increment > 0 && increment < sbrk_increment) increment = sbrk_increment;
+
+    var new_break = (var) ((string) current_break + increment);
+
+    long result = syscall2(SYS_brk, new_break);
+    if (result == -1) return (var) -1;
+
+    var old_break = current_break;
+    current_break = new_break;
+    return old_break;
+}
+
+auto                              sbrk_magic_number = 0x991010FC;
+typedef typeof(sbrk_magic_number) sbrk_magic;
+
+typedef struct block {
+    sbrk_magic    magic;
+    u8            size;
+    var           ptr;
+    bool          free;
+    struct block *next;
+    struct block *prev;
+} sbrk_block;
+
+sbrk_block *sbrk_block_list_head = NULL;
+sbrk_block *sbrk_block_list_tail = NULL;
+
+sbrk_block *sbrkocator_find_free(u8 size) {
+    if (sbrk_block_list_head == NULL) return NULL;
+    sbrk_block *cur = sbrk_block_list_head;
+
+    while (cur != NULL) {
+        if (cur->free && cur->size >= size) return cur;
+        cur = cur->next;
+    }
+
+    return NULL;
+}
+
+var sbrkocator_alloc_new(u8 size) {
+    sbrk_block *new_block = sbrk(size + sizeof(sbrk_block));
+    if (new_block == (sbrk_block *) -1) return NULL;
+    new_block->magic = sbrk_magic_number;
+    new_block->ptr   = (void *) (new_block + 1);
+    new_block->size  = size;
+    new_block->free  = false;
+    new_block->next  = NULL;
+
+    if (sbrk_block_list_head == NULL) {
+        new_block->prev      = NULL;
+        sbrk_block_list_head = new_block;
+        sbrk_block_list_tail = new_block;
+    } else {
+        new_block->prev            = sbrk_block_list_tail;
+        sbrk_block_list_tail->next = new_block;
+        sbrk_block_list_tail       = new_block;
+    }
+
+    return (void *) (new_block + 1);
+}
+
+var sbrkocator_alloc(u8 size) {
+    auto free_block = sbrkocator_find_free(size);
+
+    if (free_block == NULL) return sbrkocator_alloc_new(size);
+
+    free_block->free = false;
+
+    if (free_block->size > size + sizeof(sbrk_block)) {
+        auto new_free_block   = (sbrk_block *) ((char *) free_block + sizeof(sbrk_block) + size);
+        new_free_block->free  = true;
+        new_free_block->ptr   = (void *) (new_free_block + 1);
+        new_free_block->magic = sbrk_magic_number;
+        new_free_block->size  = free_block->size - sizeof(sbrk_block) - size;
+        new_free_block->prev  = free_block;
+        new_free_block->next  = free_block->next;
+        if (free_block->next) free_block->next->prev = new_free_block;
+        free_block->next = new_free_block;
+    }
+
+    free_block->size = size;
+
+    return (void *) (free_block + 1);
+}
+
+void sbrkocator_release(car ptr) {
+    if (ptr == NULL) return;
+
+    auto block_ptr = (sbrk_block *) ptr - 1;
+    if (block_ptr->magic != sbrk_magic_number) return;
+    if (block_ptr->free) return;
+
+    block_ptr->free = true;
+
+    if (block_ptr->prev && block_ptr->prev->free) {
+        auto prev  = block_ptr->prev;
+        prev->next = block_ptr->next;
+        if (block_ptr->next) block_ptr->next->prev = prev;
+        prev->size += block_ptr->size + sizeof(sbrk_block);
+        block_ptr = prev;
+    }
+
+    if (block_ptr->next && block_ptr->next->free) {
+        auto next       = block_ptr->next;
+        block_ptr->next = next->next;
+        if (next->next) next->next->prev = block_ptr;
+        block_ptr->size += next->size + sizeof(sbrk_block);
+    }
+}
+
+void sbrkocator_unmap(struct FoundPointer attr_unused ptr, car addr) { sbrkocator_release(addr); }
+
+struct FoundPointer sbrkocator_find_pointer(car addr) {
+    if (addr == NULL) {
+        return (struct FoundPointer) {
+            .page_index = -1, .allocation_size = -1, .pointer_ref = NULL, .page_ref = NULL, .owner = ptr_owner_sbrk
+        };
+    }
+
+    if (addr < first_break || addr > current_break) {
+        return (struct FoundPointer) {
+            .page_index = -1, .allocation_size = -1, .pointer_ref = NULL, .page_ref = NULL, .owner = ptr_owner_sbrk
+        };
+    }
+
+    sbrk_block *block = (sbrk_block *) addr - 1;
+
+    if (block->magic != sbrk_magic_number) {
+        return (struct FoundPointer) {
+            .page_index = -1, .allocation_size = -1, .pointer_ref = NULL, .page_ref = NULL, .owner = ptr_owner_sbrk
+        };
+    }
+
+    return (struct FoundPointer) { .page_index      = -1,
+                                   .allocation_size = block->size,
+                                   .pointer_ref     = (struct AllocatedPointer *) block,
+                                   .page_ref        = NULL,
+                                   .owner           = ptr_owner_sbrk };
+}
+
+const u8 MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD = 1024 * 16;
+
+var alloc(u8 size) {
+    if (size > MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD) return mmapocator_alloc(size);
+    return sbrkocator_alloc(size);
+}
+
+void release(var ptr) {
+    auto mmap_found = mmapocator_find_pointer(ptr, false);
+    if (mmap_found.allocation_size != -1) return mmapocator_unmap(mmap_found, ptr);
+    auto sbrk_found = sbrkocator_find_pointer(ptr);
+    if (sbrk_found.allocation_size != -1) return sbrkocator_release(ptr);
+
+    throw("Pointer was not owned by any of the moonshine allocators.");
+}
+
+void unmap(struct FoundPointer ptr, const var addr) {
+    if (ptr.owner == ptr_owner_mmap) mmapocator_unmap(ptr, addr);
+    sbrkocator_unmap(ptr, addr);
+}
+
+fn_line struct FoundPointer find_pointer(const var ptr, bool throw_on_error) {
+    auto mmap_found = mmapocator_find_pointer(ptr, false);
+    if (mmap_found.allocation_size != -1) return mmap_found;
+    auto sbrk_found = sbrkocator_find_pointer(ptr);
+    if (unlikely(!throw_on_error)) return sbrk_found;
+    if (sbrk_found.allocation_size != -1) return sbrk_found;
+    throw("Invalid pointer!");
+}
+
+enum GC_STATUS { GC_ALIVE, GC_DEAD };
 
 __attribute__((diagnose_as_builtin(__builtin_realloc, 1, 2))) var remap(const var ptr, const u8 new_size) {
     const var new_ptr = alloc(new_size);
     if (ptr == 0) return new_ptr;
-    const auto found = find_pointer(ptr);
+    const auto found = find_pointer(ptr, true);
     memcpy(new_ptr, ptr, found.allocation_size);
     unmap(found, ptr);
     return new_ptr;
+}
+
+// Check if the current process tree owns a pointer. Expensive, use it
+bool mine(const ptr pointer) {
+    if (pointer == NULL) return false;
+
+    for (u8 i = 0; i < global_page_table.size; i++) {
+        struct Page *page = &global_page_table.pages[ i ];
+        if (page->start == NULL) continue;
+
+        u8 page_start = (u8) page->start;
+        u8 page_end   = page_start + page->size;
+
+        if ((u8) pointer < page_start || (u8) pointer >= page_end) continue;
+
+        for (u8 j = 0; j < page->pointers.size; j++) {
+            struct AllocatedPointer *alloc = &page->pointers.data[ j ];
+            if (!alloc->allocated) continue;
+
+            u8 alloc_start = page_start + alloc->location;
+            u8 alloc_end   = alloc_start + alloc->size;
+
+            if ((u8) pointer >= alloc_start && (u8) pointer < alloc_end) return true;
+        }
+    }
+
+    sbrk_block *block = sbrk_block_list_head;
+    while (block != NULL) {
+        if (!block->free && block->magic == sbrk_magic_number) {
+            u8 block_start = (u8) block->ptr;
+            u8 block_end   = block_start + block->size;
+
+            if ((u8) pointer >= block_start && (u8) pointer < block_end) return true;
+        }
+        block = block->next;
+    }
+
+    return false;
 }
 
 u8 start_of_stack;
@@ -1129,16 +1380,25 @@ u8 start_of_stack;
 // Basic Mark & Sweep garbage collector. Slow, use with caution.
 void collect_garbage(bool debug) {
     u8 end_of_stack = (u8) &debug;
-
-    u8 start = min(start_of_stack, end_of_stack);
-    u8 end   = max(start_of_stack, end_of_stack);
+    u8 start        = min(start_of_stack, end_of_stack);
+    u8 end          = max(start_of_stack, end_of_stack);
 
     struct GC_Ptr {
         enum GC_STATUS status;
         var            ptr;
         u8             size;
-    } marks[ global_page_table.pointer_count ];
-    memset(marks, 0, global_page_table.pointer_count * sizeof(typeof(marks[ 0 ])));
+        bool           is_sbrk;
+    };
+
+    u8          total_pointers = global_page_table.pointer_count;
+    sbrk_block *block          = sbrk_block_list_head;
+    while (block != NULL) {
+        if (!block->free) total_pointers++;
+        block = block->next;
+    }
+
+    struct GC_Ptr marks[ total_pointers ];
+    memset(marks, 0, total_pointers * sizeof(struct GC_Ptr));
     u8 marks_index = 0;
 
     struct GC_Page_Range {
@@ -1154,88 +1414,116 @@ void collect_garbage(bool debug) {
 
     for (u8 page_index = 0; page_index < global_page_table.size; page_index++) {
         auto page = global_page_table.pages[ page_index ];
-
         if (page.start == NULL) continue;
 
         if ((u8) page.start < min_page_start) min_page_start = (u8) page.start;
         if ((u8) (page.start + page.size) > max_page_end) max_page_end = (u8) page.start + page.size;
 
         u8 marks_start = marks_index;
-
         for (u8 ptr_index = 0; ptr_index < page.pointers.size; ptr_index++) {
             auto ptr = page.pointers.data[ ptr_index ];
             if (!ptr.allocated) continue;
-
-            marks[ marks_index++ ] = (struct GC_Ptr) { .ptr = page.start + ptr.location, .size = ptr.size, .status = GC_DEAD };
+            marks[ marks_index++ ]
+                = (struct GC_Ptr) { .ptr = page.start + ptr.location, .size = ptr.size, .status = GC_DEAD, .is_sbrk = false };
         }
-
         page_ranges[ ranges_index++ ] = (struct GC_Page_Range) { .start_location = page.start,
                                                                  .end_location   = page.start + page.size,
                                                                  .marks_position = marks_start,
                                                                  .marks_end      = marks_index };
     }
 
-    // Check stack values for references
-    for (u8 st = start; st < end; st++) {
+    u8 sbrk_min = (u8) first_break;
+    u8 sbrk_max = (u8) current_break;
+    block       = sbrk_block_list_head;
+    while (block != NULL) {
+        if (!block->free) {
+            marks[ marks_index++ ]
+                = (struct GC_Ptr) { .ptr = block->ptr, .size = block->size, .status = GC_DEAD, .is_sbrk = true };
+        }
+        block = block->next;
+    }
+
+    for (u8 st = start; st < end; st += sizeof(var)) {
         auto ptr   = (var) st;
         auto value = *(u8 *) ptr;
 
-        if (value < min_page_start || value > max_page_end) continue;
+        if (value < min_page_start || value > max_page_end) {
+            if (sbrk_min <= value && value <= sbrk_max) goto CHECK_SBRK;
+            continue;
+        }
 
-        // Value is in range of page data
         for (u8 page_idx = 0; page_idx < ranges_index; page_idx++) {
             auto page = page_ranges[ page_idx ];
             if (value < (u8) page.start_location || value > (u8) page.end_location) continue;
 
-            // Value is in this page!
-            for (u8 marks_idx = page.marks_position; marks_idx <= page.marks_end; marks_idx++) {
+            for (u8 marks_idx = page.marks_position; marks_idx < page.marks_end; marks_idx++) {
                 auto mark = marks[ marks_idx ];
-
-                if (((var) value < mark.ptr) || ((var) value >= (mark.ptr + mark.size))) continue;
-                // We found the pointer! Woohoo!
+                if ((var) value < mark.ptr || (var) value >= (mark.ptr + mark.size)) continue;
                 marks[ marks_idx ].status = GC_ALIVE;
-                st += sizeof(var) - 1; // Increment the stack pointer, since we've already found a pointer there
                 goto TOP_LEVEL_CONTINUE;
             }
         }
+
+    CHECK_SBRK:
+        block = sbrk_block_list_head;
+        while (block != NULL) {
+            if (!block->free && value >= (u8) block->ptr && value < (u8) (block->ptr + block->size)) {
+                for (u8 m = 0; m < marks_index; m++) {
+                    if (marks[ m ].ptr == block->ptr && marks[ m ].is_sbrk) {
+                        marks[ m ].status = GC_ALIVE;
+                        goto TOP_LEVEL_CONTINUE;
+                    }
+                }
+            }
+            block = block->next;
+        }
+
     TOP_LEVEL_CONTINUE:;
     }
 
-    // Iterate over living pointers, and mark other living pointers inside, until we run out of newly marked pointers
     bool all_marked = false;
-
     unless(all_marked) {
         all_marked = true;
         for (u8 ptr_idx = 0; ptr_idx < marks_index; ptr_idx++) {
             if (marks[ ptr_idx ].status == GC_DEAD) continue;
 
-            // Pointer is alive. Get value.
             auto ptr = marks[ ptr_idx ];
-
-            for (u8 ptr_var = 0; ptr_var < ptr.size; ptr_var++) {
+            for (u8 ptr_var = 0; ptr_var < ptr.size; ptr_var += sizeof(var)) {
                 u8 *pointer = ptr.ptr + ptr_var;
                 u8  value   = *(u8 *) pointer;
 
-                if (value < min_page_start || value > max_page_end) continue;
+                if (value < min_page_start || value > max_page_end) {
+                    if (sbrk_min <= value && value <= sbrk_max) goto CHECK_SBRK_HEAP;
+                    continue;
+                }
 
-                // Value is in range of page data
                 for (u8 page_idx = 0; page_idx < ranges_index; page_idx++) {
                     auto page = page_ranges[ page_idx ];
                     if (value < (u8) page.start_location || value > (u8) page.end_location) continue;
 
-                    // Value is in this page!
-                    for (u8 marks_idx = page.marks_position; marks_idx < marks_index; marks_idx++) {
+                    for (u8 marks_idx = page.marks_position; marks_idx < page.marks_end; marks_idx++) {
                         auto mark = marks[ marks_idx ];
-
-                        if ((var) value < mark.ptr || (var) value >= mark.ptr + mark.size) continue;
-                        // We found the pointer! Woohoo!
+                        if ((var) value < mark.ptr || (var) value >= (mark.ptr + mark.size)) continue;
                         if (mark.status != GC_ALIVE) {
                             marks[ marks_idx ].status = GC_ALIVE;
                             all_marked                = false;
                         }
-                        ptr_var += sizeof(var) - 1; // Increment the pointer value, since we've already found a pointer there
                         goto NEXT_CONTINUE;
                     }
+                }
+
+            CHECK_SBRK_HEAP:
+                block = sbrk_block_list_head;
+                while (block != NULL) {
+                    if (!block->free && value >= (u8) block->ptr && value < (u8) (block->ptr + block->size)) {
+                        for (u8 m = 0; m < marks_index; m++) {
+                            if (marks[ m ].ptr == block->ptr && marks[ m ].is_sbrk && marks[ m ].status != GC_ALIVE) {
+                                marks[ m ].status = GC_ALIVE;
+                                all_marked        = false;
+                            }
+                        }
+                    }
+                    block = block->next;
                 }
 
             NEXT_CONTINUE:;
@@ -1244,11 +1532,15 @@ void collect_garbage(bool debug) {
     }
 
     u8 total_saved = 0;
-
     for (u8 m = 0; m < marks_index; m++) {
         auto mark = marks[ m ];
         if (mark.status == GC_DEAD) {
-            release(mark.ptr);
+            if (mark.is_sbrk) {
+                sbrkocator_release(mark.ptr);
+            } else {
+                auto found = mmapocator_find_pointer(mark.ptr, false);
+                if (found.allocation_size != -1) mmapocator_unmap(found, mark.ptr);
+            }
             total_saved += mark.size;
         }
     }
@@ -1268,7 +1560,7 @@ const var *__new_array(const string type_name, const u8 type_size, const u8 coun
     cast_index(ptr, magic_type, 0) = magic_number; // magic number for arrays
     ptr                            = cast_ptr(ptr, magic_type, 1);
 
-    cast_index(ptr, ctring, 0) = type_name;
+    cast_index(ptr, string, 0) = type_name;
     ptr                        = cast_ptr(ptr, string, 1);
 
     cast_index(ptr, u8, 0) = type_size;
@@ -1322,7 +1614,8 @@ void unsafe_push(var *array, const var ptr, const u8 ptr_size) [[clang::allocati
     var       array_wrap = main_wrap;
 
     if (cast_index(array_wrap, magic_type, 0) != magic_number) {
-        throw("Invalid array magic number: ", cast_index(array_wrap, magic_type, 0), ", expected ", magic_number);
+        // auto mnum = cast_index(array_wrap, magic_type, 0);
+        throw("Invalid array magic number!");
     }
 
     array_wrap       = cast_ptr(array_wrap, magic_type, 1);
@@ -1925,6 +2218,8 @@ extern void __llvm_profile_set_filename(const char *name);
 
 [[noreturn]] __attribute__((used)) void __moonshine_start(int argc, string *argv, string *envp) {
     start_of_stack = (u8) &argc;
+    current_break  = sbrk(0);
+    first_break    = current_break;
 
 #ifdef __MOONSHINE_PROFILER
     static const char profile_filename[] __attribute__((used)) = "profile.profraw";

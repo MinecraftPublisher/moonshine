@@ -90,11 +90,13 @@ int main() {
 
         collect_garbage(true);
     } else if (current_test == test_minor_features) {
-        // Minor feature: Custom, better designed float representation
-        auto x = (struct moonshine_float) { .number = 1234, .decimal = 2 };
-        println(x);
-        // Normal float enhancement
-        println(12.34);
+        // Minor feature: sbrk allocator
+        auto ptr = sbrkocator_alloc(10);
+        sbrkocator_release(ptr);
+        ptr = sbrkocator_alloc(1000);
+        sbrkocator_release(sbrkocator_alloc(500));
+        sbrkocator_release(ptr);
+        puts("Wowie\n");
     } else if (current_test == test_garbage_collector_2) {
         for (u8 i = 0; i < 9999; i++) new (int, 9999);
         collect_garbage(true);
