@@ -6,6 +6,7 @@ all: m4 c test
 clean:
 	rm -rf out.*
 	rm -rf *.m4.h
+	rm -rf perf.data*
 
 m4:
 	m4 moonshine.m4 > moonshine.m4.h

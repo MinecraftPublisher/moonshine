@@ -993,7 +993,6 @@ __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)
     static int alloc_count = 0;
     if (unlikely(alloc_count++ == 4096)) {
         alloc_count = 0;
-        // mmapocator_collect_garbage(false);
         mmapocator_clean_pages();
     }
 
@@ -1073,9 +1072,6 @@ ABYSS:;
     return (var) new_location;
 }
 
-// TODO: find_pointer only handles absolute pointers, whilst mine() needs to handle forward-facing pointers as well, which have
-// been altered by pointer arithmetic.
-
 // Finds a pointer's reference in the page table.
 struct FoundPointer mmapocator_find_pointer(const var addr, bool throw_on_error) {
     for (u8 i = 0; i < global_page_table.size; i++) {
@@ -1145,8 +1141,6 @@ var current_break = NULL;
 var first_break   = NULL;
 
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
-
-// TODO: Prevent sbrk from requesting more brk space if the value is less than an increment of 1024.
 
 const u8        sbrk_increment = 4096;
 fn_overload var sbrk(u8 increment) {
@@ -1337,7 +1331,7 @@ __attribute__((diagnose_as_builtin(__builtin_realloc, 1, 2))) var remap(const va
     return new_ptr;
 }
 
-// Check if the current process tree owns a pointer. Expensive, use it
+// Check if the current process tree owns a pointer. Expensive, don't use it often.
 bool mine(const ptr pointer) {
     if (pointer == NULL) return false;
 
@@ -2262,8 +2256,6 @@ __attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void
                      "syscall \n"
                      "hlt \n");
 }
-
-// TODO: Check for errors
 
 typedef long ssize_t;
 typedef long off_t;
