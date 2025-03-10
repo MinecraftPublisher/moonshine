@@ -4,6 +4,10 @@ This library aims to be a drop-in libc replacement for most C projects, whilst a
 It already supports the system calls and library functions which were necessary for its functionality, but more stdlib support should come soon.
 This library relies upon nothing but the C language itself, not even the standard library headers that C often uses, such as stdlib.h, unistd.h, etc.
 
+**Note**: Moonshine currently focuses only on supporting x86_64 Linux.
+Support for more operating systems and architectures is not part of the goals of this project, but it is a consideration to be kept in mind.
+That said, any contribution to expand support to other configurations are absolutely welcome.
+
 ## Current features
 - Mark & Sweep garbage collector for responsible memory management (must be manually called, for now)
 - Easy array creation: `new(int)`, `new(char, 4)`, `fill(int, 2, 4, 5)`, `fill(string, "hello", "world")`, `single("string")`, `single(22.4)`
