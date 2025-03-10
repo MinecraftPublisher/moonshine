@@ -13,7 +13,7 @@ const enum {
     test_minor_features,
     test_garbage_collector_2
 } current_test
-    = test_garbage_collector_2;
+    = test_minor_features;
 
 int main() {
     if (current_test == test_alloc) {
@@ -91,12 +91,9 @@ int main() {
         collect_garbage(true);
     } else if (current_test == test_minor_features) {
         // Minor feature: sbrk allocator
-        auto ptr = sbrkocator_alloc(10);
-        sbrkocator_release(ptr);
-        ptr = sbrkocator_alloc(1000);
-        sbrkocator_release(sbrkocator_alloc(500));
-        sbrkocator_release(ptr);
-        puts("Wowie\n");
+        var wow = sbrkocator_alloc(2000);
+        println("Pointer: ", wow);
+        collect_garbage(true);
     } else if (current_test == test_garbage_collector_2) {
         for (u8 i = 0; i < 9999; i++) new (int, 9999);
         collect_garbage(true);

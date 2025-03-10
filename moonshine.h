@@ -1191,6 +1191,10 @@ sbrk_block *sbrkocator_find_free(u8 size) {
 
 var sbrkocator_alloc_new(u8 size) {
     sbrk_block *new_block = sbrk(size + sizeof(sbrk_block));
+
+    // Out of sbrk memory.
+    if(current_break < (var)new_block + size) return NULL;
+
     if (new_block == (sbrk_block *) -1) return NULL;
     new_block->magic = sbrk_magic_number;
     new_block->ptr   = (void *) (new_block + 1);
@@ -1294,7 +1298,9 @@ const u8 MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD = 1024 * 16;
 
 var alloc(u8 size) {
     if (size > MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD) return mmapocator_alloc(size);
-    return sbrkocator_alloc(size);
+    var sbrk_ptr = sbrkocator_alloc(size);
+    if(sbrk_ptr == NULL) return mmapocator_alloc(size);
+    return sbrk_ptr;
 }
 
 void release(var ptr) {
