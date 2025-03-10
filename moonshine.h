@@ -1193,7 +1193,7 @@ var sbrkocator_alloc_new(u8 size) {
     sbrk_block *new_block = sbrk(size + sizeof(sbrk_block));
 
     // Out of sbrk memory.
-    if(current_break < (var)new_block + size) return NULL;
+    if (current_break < (var) new_block + size) return NULL;
 
     if (new_block == (sbrk_block *) -1) return NULL;
     new_block->magic = sbrk_magic_number;
@@ -1297,9 +1297,14 @@ struct FoundPointer sbrkocator_find_pointer(car addr) {
 const u8 MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD = 1024 * 16;
 
 var alloc(u8 size) {
-    if (size > MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD) return mmapocator_alloc(size);
+    if (size > MOONSHINE_ALLOCATOR_SWITCH_THRESHOLD) {
+        var mmap_ptr = mmapocator_alloc(size);
+        if (mmap_ptr == NULL) goto SBRK_ALLOC;
+        return mmap_ptr;
+    }
+SBRK_ALLOC:;
     var sbrk_ptr = sbrkocator_alloc(size);
-    if(sbrk_ptr == NULL) return mmapocator_alloc(size);
+    if (sbrk_ptr == NULL) return mmapocator_alloc(size);
     return sbrk_ptr;
 }
 
@@ -1545,7 +1550,7 @@ void collect_garbage(bool debug) {
         }
     }
 
-    if (debug) println("Saved ", calculate_human_readable_size(total_saved), " of memory");
+    if (debug) println("[GC] Saved ", calculate_human_readable_size(total_saved), " of memory");
 }
 
 #define de(obj) (*(obj))
