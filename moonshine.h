@@ -8,7 +8,7 @@
 
 //
 
-#include "moonshine.m4.h"
+#include "moonshine.expander.h"
 
 #define fn_overload __attribute__((overloadable))
 #define fn_line     fn_overload flatten
@@ -237,11 +237,12 @@ int errno = 0;
         write((char *) &y, 1, stdout);                                                                                         \
     })
 
-__attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void memcpy(var _dest, car _src, const unsigned long n) {
+__attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void *memcpy(var _dest, car _src, const unsigned long n) {
     string dest = _dest;
     ctring src  = _src;
 
     for (u8 i = 0; i < n; i++) dest[ i ] = src[ i ];
+    return dest;
 }
 
 #define stdin  0
@@ -271,6 +272,7 @@ int write(const char *ptr, const int size, const int fd) {
 
     if (fd == 1) {
         for (int i = 0; i < size; i++) {
+            if(ptr[i] == 0) return flush(fd);
             stdout_buffer[ stdout_buffer_index++ ] = ptr[ i ];
             if (stdout_buffer_index == BUFFER_SIZE || ptr[ i ] == '\n') {
                 int result = flush(fd);
@@ -554,6 +556,7 @@ int fork() {
 void exit(const int exit_code) {
     const uint64_t syscall_number = 60;
 
+    flush(stdout);
     (void) syscall2(syscall_number, exit_code);
 
     __builtin_unreachable();
@@ -708,7 +711,7 @@ void realloc() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "remap")
 void free() __attribute__((deprecated(MOONSHINE_LEGACY_LIBC_WARNING, "release")));
 #endif
 
-__attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) byte strcmp(ctring left, ctring right) {
+__attribute__((diagnose_as_builtin(__builtin_strcmp, 1, 2))) int strcmp(ctring left, ctring right) {
     while (*left && (*left == *right) && left++ && right++);
     return (byte) (*left) - (byte) (*right);
 }
@@ -988,11 +991,13 @@ void mmapocator_clean_pages() {
 
 // TODO: Place page pointer and pointer size behind the allocated pointer
 
+void                                                                                  collect_garbage(bool debug);
 __attribute__((diagnose_as_builtin(__builtin_malloc, 1))) __attribute__((malloc)) var mmapocator_alloc(const u8 len)
     [[clang::allocating]] {
     static int alloc_count = 0;
     if (unlikely(alloc_count++ == 4096)) {
         alloc_count = 0;
+        collect_garbage(false);
         mmapocator_clean_pages();
     }
 
@@ -1215,7 +1220,7 @@ var sbrkocator_alloc_new(u8 size) {
     return (void *) (new_block + 1);
 }
 
-var sbrkocator_alloc(u8 size) {
+__attribute__((malloc)) var sbrkocator_alloc(u8 size) {
     auto free_block = sbrkocator_find_free(size);
 
     if (free_block == NULL) return sbrkocator_alloc_new(size);
@@ -2259,7 +2264,7 @@ __attribute__((force_align_arg_pointer)) __attribute__((naked)) void _start(void
                      "lea 8(%rsp), %rsi \n"
                      "mov %rdi, %rax \n"
                      "lea (,%rax,8), %rcx \n"
-                     "add $8, %rcx \n"
+                     "add $16, %rcx \n"
                      "lea (%rsp, %rcx), %rdx \n"
                      "call __moonshine_start \n"
                      "mov $60, %rax \n"

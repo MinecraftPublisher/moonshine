@@ -8,6 +8,32 @@ This library relies upon nothing but the C language itself, not even the standar
 Support for more operating systems and architectures is not part of the goals of this project, but it is a consideration to be kept in mind.
 That said, any contribution to expand support to other configurations are absolutely welcome.
 
+## Usage guide
+First, build the builder (yes, the build system and macro generator are written in no-libc C as well):
+```sh
+$ clang build.c -nostdlib -o builder
+```
+Run it for a guide:
+```sh
+$ ./builder
+```
+Build the macros:
+```sh
+$ ./builder macro
+```
+Verify the test cases:
+```sh
+$ ./builder run
+```
+Install moonshine:
+```sh
+$ ./builder install
+```
+All-in-one quick install:
+```sh
+$ ./builder all
+```
+
 ## Current features
 - Mark & Sweep garbage collector for responsible memory management (must be manually called, for now)
 - Easy array creation: `new(int)`, `new(char, 4)`, `fill(int, 2, 4, 5)`, `fill(string, "hello", "world")`, `single("string")`, `single(22.4)`
