@@ -2,3 +2,4 @@ out.*
 moonshine.expander.h
 perf.data*
 builder
+safekeep/
