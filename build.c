@@ -245,7 +245,7 @@ void macro_define_part(char *name, int index, int count) {
     staputs("(func, extra, x, ...) func(extra, ");
     puts_number(count - index + 1, 0);
     staputs(", x)");
-    if(index == 1) {
+    if (index == 1) {
         putchar('\n');
         return;
     }
@@ -291,7 +291,7 @@ void macro_processor() {
 
 // ----- The real builder code starts here. -----
 
-#define FLAGS "-Wno-incompatible-library-redeclaration -nostartfiles -nostdlib"
+#define FLAGS "-nostartfiles -nostdlib"
 #define SIZE_FLAGS                                                                                                             \
     "-Wl,--undefined=main -flto -Oz -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--strip-all "                    \
     "-finline-hint-functions -fno-builtin -Wl,--print-gc-sections -fno-unwind-tables -fomit-frame-pointer "                    \
@@ -302,7 +302,7 @@ unsigned char code_ran = 0;
 void run_dep_code() {
     if (code_ran) return;
     code_ran = 1;
-    run("clang main.c -o out.bin " FLAGS " -O3");
+    run("clang main.c -o out.bin " FLAGS /* " -O3" */);
 }
 
 unsigned char macro_ran = 0;
@@ -383,7 +383,7 @@ int main(int argc, char **argv) {
             run("perf report > ./out.profile.txt");
         } else if (eq(argument, "debug")) {
             type("-- debug");
-            run("clang main.c -o out.bin $(FLAGS) -g");
+            run("clang main.c -o out.bin " FLAGS " -g");
             run("lldb ./out.bin -o run");
         } else if (eq(argument, "install")) {
             type("-- install");
