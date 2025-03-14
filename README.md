@@ -11,7 +11,7 @@ That said, any contribution to expand support to other configurations are absolu
 ## Usage guide
 First, build the builder (yes, the build system and macro generator are written in no-libc C as well):
 ```sh
-$ clang build.c -nostdlib -o builder
+$ clang build.c -nostdlib -nostartfiles -o builder
 ```
 Run it for a guide:
 ```sh
