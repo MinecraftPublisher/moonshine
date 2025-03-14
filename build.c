@@ -172,11 +172,15 @@ int system(const char *command) {
     return status;
 }
 
-int run(const char *command) {
+void run(const char *command) {
     staputs("> ");
     puts(command);
     staputs("\n");
-    return system(command);
+    int status = system(command);
+    if (status != 0) {
+        staputs("** Builder encountered error. Exiting with respective code. **\n");
+        exit(status);
+    }
 }
 
 __attribute__((diagnose_as_builtin(__builtin_memcpy, 1, 2, 3))) void *
@@ -320,7 +324,7 @@ void run_dep_macro(char *name) {
     self[ sizeof(self) - 1 ] = '\0';
 
     run("rm -f moonshine.expander.h");
-    system(self);
+    run(self);
 }
 
 unsigned char install_ran = 0;
