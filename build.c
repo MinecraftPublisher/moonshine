@@ -178,7 +178,7 @@ void run(const char *command) {
     staputs("\n");
     int status = system(command);
     if (status != 0) {
-        staputs("** Builder encountered error. Exiting with respective code. **\n");
+        staputs("** Builder encountered error. Exiting with respective error code. **\n");
         exit(status);
     }
 }
@@ -295,18 +295,24 @@ void macro_processor() {
 
 // ----- The real builder code starts here. -----
 
-#define FLAGS "-nostartfiles -nostdlib"
+#define FLAGS "-nostartfiles -nostdlib -std=c23 -fno-omit-frame-pointer"
 #define SIZE_FLAGS                                                                                                             \
     "-Wl,--undefined=main -flto -Oz -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--strip-all "                    \
-    "-finline-hint-functions -fno-builtin -Wl,--print-gc-sections -fno-unwind-tables -fomit-frame-pointer "                    \
+    "-finline-hint-functions -fno-builtin -Wl,--print-gc-sections -fno-unwind-tables "                                         \
     "-fno-asynchronous-unwind-tables -fno-ident -fvisibility=hidden -march=native -Wl,--build-id=none"
 
 unsigned char code_ran = 0;
 
+bool use_size = false;
+
 void run_dep_code() {
     if (code_ran) return;
     code_ran = 1;
-    run("clang main.c -o out.bin " FLAGS /* " -O3" */);
+    if (use_size) {
+        run("clang main.c -o out.bin " FLAGS " " SIZE_FLAGS /* " -O3" */);
+    } else {
+        run("clang main.c -o out.bin " FLAGS /* " -O3" */);
+    }
 }
 
 unsigned char macro_ran = 0;
@@ -375,6 +381,7 @@ int main(int argc, char **argv) {
             run_dep_macro(argv[ 0 ]);
         } else if (eq(argument, "code")) {
             type("-- code");
+            use_size = true;
             run_dep_code();
         } else if (eq(argument, "run")) {
             type("-- run");

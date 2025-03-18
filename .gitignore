@@ -3,3 +3,4 @@ moonshine.expander.h
 perf.data*
 builder
 safekeep/
+.git2/
